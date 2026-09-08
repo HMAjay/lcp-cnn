@@ -1,0 +1,31 @@
+{
+  "series_uid": "1.2.syn.3",
+  "physical_nodules": [
+    {
+      "physical_id": "1.2.syn.3-n0",
+      "confidence": "high",
+      "representative_centroid_patient_mm": [
+        50.0,
+        53.0,
+        44.0
+      ],
+      "malignancy_mean": 1.0,
+      "observations": [
+        {
+          "session_index": 0,
+          "characteristics": {
+            "malignancy": 1.0
+          }
+        },
+        {
+          "session_index": 1,
+          "characteristics": {
+            "malignancy": 1.0
+          }
+        }
+      ]
+    }
+  ],
+  "ambiguous_observations": [],
+  "unmatched_observations": []
+}

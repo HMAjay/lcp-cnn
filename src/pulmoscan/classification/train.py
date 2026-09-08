@@ -117,6 +117,22 @@ def run_training(
 
     datasets = make_datasets(data_root, data_cfg)
     if "train" not in datasets:
+        # Print label-build stats to help debug empty datasets
+        try:
+            from pulmoscan.data.labels import build_samples
+
+            labeling = data_cfg.get("labeling", {})
+            _, stats = build_samples(
+                data_root,
+                malignant_min=float(labeling.get("malignant_min", 4.0)),
+                benign_max=float(labeling.get("benign_max", 2.0)),
+                min_confidence=labeling.get("min_confidence", "low"),
+                use_physical_nodules=bool(labeling.get("use_physical_nodules", True)),
+                return_stats=True,
+            )
+            print("Label build stats:", json.dumps(stats, indent=2))
+        except Exception as exc:  # noqa: BLE001
+            print("Could not collect label stats:", exc)
         raise RuntimeError(f"No train samples under {data_root}")
 
     summary = {

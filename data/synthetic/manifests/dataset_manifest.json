@@ -1,0 +1,95 @@
+{
+  "n_series": 12,
+  "n_patients": 12,
+  "splits": {
+    "train": 8,
+    "validation": 2,
+    "test": 2
+  },
+  "series": [
+    {
+      "series_uid": "1.2.syn.0",
+      "patient_id": "SYN000",
+      "split": "train",
+      "volume": "volumes/1.2.syn.0.nii.gz",
+      "physical_nodules": "metadata/physical_nodules/1.2.syn.0.json"
+    },
+    {
+      "series_uid": "1.2.syn.1",
+      "patient_id": "SYN001",
+      "split": "train",
+      "volume": "volumes/1.2.syn.1.nii.gz",
+      "physical_nodules": "metadata/physical_nodules/1.2.syn.1.json"
+    },
+    {
+      "series_uid": "1.2.syn.2",
+      "patient_id": "SYN002",
+      "split": "train",
+      "volume": "volumes/1.2.syn.2.nii.gz",
+      "physical_nodules": "metadata/physical_nodules/1.2.syn.2.json"
+    },
+    {
+      "series_uid": "1.2.syn.3",
+      "patient_id": "SYN003",
+      "split": "train",
+      "volume": "volumes/1.2.syn.3.nii.gz",
+      "physical_nodules": "metadata/physical_nodules/1.2.syn.3.json"
+    },
+    {
+      "series_uid": "1.2.syn.4",
+      "patient_id": "SYN004",
+      "split": "train",
+      "volume": "volumes/1.2.syn.4.nii.gz",
+      "physical_nodules": "metadata/physical_nodules/1.2.syn.4.json"
+    },
+    {
+      "series_uid": "1.2.syn.5",
+      "patient_id": "SYN005",
+      "split": "train",
+      "volume": "volumes/1.2.syn.5.nii.gz",
+      "physical_nodules": "metadata/physical_nodules/1.2.syn.5.json"
+    },
+    {
+      "series_uid": "1.2.syn.6",
+      "patient_id": "SYN006",
+      "split": "train",
+      "volume": "volumes/1.2.syn.6.nii.gz",
+      "physical_nodules": "metadata/physical_nodules/1.2.syn.6.json"
+    },
+    {
+      "series_uid": "1.2.syn.7",
+      "patient_id": "SYN007",
+      "split": "train",
+      "volume": "volumes/1.2.syn.7.nii.gz",
+      "physical_nodules": "metadata/physical_nodules/1.2.syn.7.json"
+    },
+    {
+      "series_uid": "1.2.syn.8",
+      "patient_id": "SYN008",
+      "split": "validation",
+      "volume": "volumes/1.2.syn.8.nii.gz",
+      "physical_nodules": "metadata/physical_nodules/1.2.syn.8.json"
+    },
+    {
+      "series_uid": "1.2.syn.9",
+      "patient_id": "SYN009",
+      "split": "validation",
+      "volume": "volumes/1.2.syn.9.nii.gz",
+      "physical_nodules": "metadata/physical_nodules/1.2.syn.9.json"
+    },
+    {
+      "series_uid": "1.2.syn.10",
+      "patient_id": "SYN010",
+      "split": "test",
+      "volume": "volumes/1.2.syn.10.nii.gz",
+      "physical_nodules": "metadata/physical_nodules/1.2.syn.10.json"
+    },
+    {
+      "series_uid": "1.2.syn.11",
+      "patient_id": "SYN011",
+      "split": "test",
+      "volume": "volumes/1.2.syn.11.nii.gz",
+      "physical_nodules": "metadata/physical_nodules/1.2.syn.11.json"
+    }
+  ]
+}

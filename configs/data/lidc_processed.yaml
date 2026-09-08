@@ -15,7 +15,7 @@ labeling:
   malignant_min: 4.0
   benign_max: 2.0
   use_physical_nodules: true
-  min_confidence: medium  # high | medium | low (include this level and higher)
+  min_confidence: low  # high | medium | low (include this level and higher)
   require_centroid: true
 
 augmentation:

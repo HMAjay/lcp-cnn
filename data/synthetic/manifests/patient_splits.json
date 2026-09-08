@@ -1,0 +1,20 @@
+{
+  "train": [
+    "SYN000",
+    "SYN001",
+    "SYN002",
+    "SYN003",
+    "SYN004",
+    "SYN005",
+    "SYN006",
+    "SYN007"
+  ],
+  "validation": [
+    "SYN008",
+    "SYN009"
+  ],
+  "test": [
+    "SYN010",
+    "SYN011"
+  ]
+}
