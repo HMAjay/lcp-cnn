@@ -1,0 +1,21 @@
+seed: 42
+epochs: 30
+batch_size: 4
+lr: 1.0e-4
+weight_decay: 1.0e-4
+warmup_epochs: 2
+grad_accum_steps: 2
+max_grad_norm: 1.0
+amp: true
+early_stopping_patience: 8
+
+loss:
+  name: weighted_bce  # weighted_bce | focal
+  focal_gamma: 2.0
+  pos_weight: null  # auto from train set if null
+
+checkpoint_dir: ./artifacts/checkpoints
+log_dir: ./artifacts/logs
+save_every: 5
+
+# Smoke / CI overrides via CLI: --epochs 1 --batch-size 2
