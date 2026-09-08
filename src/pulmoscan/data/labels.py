@@ -45,6 +45,8 @@ def _walk_malignancy_scores(obj: Any, out: list[float]) -> None:
         for k, v in obj.items():
             key = str(k).lower()
             if key in {"malignancy", "malignancy_score", "malignancyrating"}:
+                if v is None or v == "":
+                    continue
                 try:
                     out.append(float(v))
                 except (TypeError, ValueError):
@@ -54,6 +56,10 @@ def _walk_malignancy_scores(obj: Any, out: list[float]) -> None:
     elif isinstance(obj, list):
         for item in obj:
             _walk_malignancy_scores(item, out)
+
+
+def _norm_nid(nid: Any) -> str:
+    return str(nid or "").strip().lower()
 
 
 def _mean_or_none(scores: list[float]) -> float | None:
@@ -181,16 +187,15 @@ def _centroid_from_nodule(nod: dict[str, Any]) -> list[float] | None:
 
 def _index_lidc_file(data: Any) -> dict[str, list[float]]:
     """
-    Build maps:
-      session_index::nodule_id -> [malignancy...]
-      nodule_id -> [malignancy...]
-      __all__ -> all scores in file
+    Build maps for reading_sessions[].nodules[].characteristics.malignancy:
+      session_index::nodule_id -> scores
+      nodule_id -> scores
+      session_index::#idx -> scores
     """
-    index: dict[str, list[float]] = {"__all__": []}
-    _walk_malignancy_scores(data, index["__all__"])
+    index: dict[str, list[float]] = {}
 
     def _add(key: str, scores: list[float]) -> None:
-        if not scores:
+        if not key or not scores:
             return
         index.setdefault(key, []).extend(scores)
 
@@ -211,7 +216,7 @@ def _index_lidc_file(data: Any) -> dict[str, list[float]]:
     for si, sess in enumerate(sessions or []):
         if not isinstance(sess, dict):
             continue
-        session_index = sess.get("session_index", sess.get("id", si))
+        session_index = int(sess.get("session_index", sess.get("id", si)))
         nodules = (
             sess.get("nodules")
             or sess.get("unblinded_read_nodule")
@@ -220,18 +225,25 @@ def _index_lidc_file(data: Any) -> dict[str, list[float]]:
         )
         if isinstance(nodules, dict):
             nodules = list(nodules.values())
-        for nod in nodules or []:
+        for idx, nod in enumerate(nodules or []):
             if not isinstance(nod, dict):
                 continue
-            nid = str(nod.get("nodule_id") or nod.get("noduleID") or nod.get("id") or "")
+            raw_nid = nod.get("nodule_id") or nod.get("noduleID") or nod.get("id") or ""
+            nid = _norm_nid(raw_nid)
             local: list[float] = []
             chars = nod.get("characteristics") or nod.get("nodule_characteristics") or {}
-            _walk_malignancy_scores(chars, local)
+            if isinstance(chars, dict) and chars.get("malignancy") is not None:
+                try:
+                    local.append(float(chars["malignancy"]))
+                except (TypeError, ValueError):
+                    pass
             if not local:
-                _walk_malignancy_scores(nod, local)
+                _walk_malignancy_scores(chars, local)
+            _add(f"{session_index}::#{idx}", local)
             if nid:
                 _add(nid, local)
                 _add(f"{session_index}::{nid}", local)
+                _add(_norm_nid(raw_nid), local)
     return index
 
 
@@ -273,15 +285,18 @@ def _score_from_observations(
         if local:
             scores.extend(local)
             continue
-        nid = str(obs.get("nodule_id") or obs.get("id") or "")
+        nid = _norm_nid(obs.get("nodule_id") or obs.get("id") or "")
         si = obs.get("session_index")
-        if si is not None and nid and f"{si}::{nid}" in lidc_index:
-            scores.extend(lidc_index[f"{si}::{nid}"])
-        elif nid and nid in lidc_index:
-            scores.extend(lidc_index[nid])
-    if scores:
-        return _mean_or_none(scores)
-    return _mean_or_none(lidc_index.get("__all__", []))
+        keys = []
+        if si is not None and nid:
+            keys.append(f"{int(si)}::{nid}")
+        if nid:
+            keys.append(nid)
+        for key in keys:
+            if key in lidc_index:
+                scores.extend(lidc_index[key])
+                break
+    return _mean_or_none(scores)
 
 
 def build_samples(
