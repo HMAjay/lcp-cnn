@@ -33,6 +33,7 @@ dev = ["pytest>=7.4", "ruff>=0.4"]
 pulmoscan-train = "pulmoscan.classification.train:main"
 pulmoscan-eval = "pulmoscan.evaluation.evaluate:main"
 pulmoscan-demo = "pulmoscan.inference.demo_app:main"
+pulmoscan-predict = "pulmoscan.inference.predict_real:main"
 pulmoscan-synth = "pulmoscan.data.synthetic:main"
 
 [tool.setuptools.packages.find]
