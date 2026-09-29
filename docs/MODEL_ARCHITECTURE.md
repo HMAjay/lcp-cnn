@@ -2,7 +2,15 @@
 
 Research use only. Not a medical diagnosis.
 
-## Diagram
+## Downloadable images
+
+- Mermaid render: [`docs/images/hybrid_cnn_swin_architecture.png`](images/hybrid_cnn_swin_architecture.png)
+- SVG: [`docs/images/hybrid_cnn_swin_architecture.svg`](images/hybrid_cnn_swin_architecture.svg)
+- Report-style poster: [`docs/images/pulmoscan-hybrid-cnn-swin-architecture.png`](images/pulmoscan-hybrid-cnn-swin-architecture.png)
+
+![Hybrid CNN + Swin architecture](images/pulmoscan-hybrid-cnn-swin-architecture.png)
+
+## Diagram (Mermaid source)
 
 ```mermaid
 flowchart TB
