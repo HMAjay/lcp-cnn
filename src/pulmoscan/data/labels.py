@@ -247,23 +247,59 @@ def _index_lidc_file(data: Any) -> dict[str, list[float]]:
     return index
 
 
-def _load_lidc_index_for_series(root: Path, lidc_rel: str | None, series_uid: str) -> dict[str, list[float]]:
-    path = _resolve_under_root(
-        root,
-        lidc_rel,
-        fallbacks=list((root / "metadata" / "lidc").rglob(f"*{series_uid}*.json"))
-        if (root / "metadata" / "lidc").exists()
-        else [],
-    )
-    if path is None and (root / "metadata" / "lidc").exists():
-        # last resort: any nested json (small datasets only)
-        all_json = list((root / "metadata" / "lidc").rglob("*.json"))
-        # Prefer paths mentioned by series uid fragment in parent names — else none
-        path = None
-        for p in all_json:
-            if series_uid in str(p):
-                path = p
-                break
+def _series_uid_from_lidc_doc(data: Any, fallback: str = "") -> str:
+    if not isinstance(data, dict):
+        return fallback
+    for key in (
+        "series_instance_uid",
+        "series_uid",
+        "SeriesInstanceUID",
+        "seriesInstanceUid",
+    ):
+        if data.get(key):
+            return str(data[key])
+    # sometimes nested under study/series
+    for nest in ("series", "study", "meta", "metadata"):
+        sub = data.get(nest)
+        if isinstance(sub, dict):
+            for key in ("series_instance_uid", "series_uid", "SeriesInstanceUID"):
+                if sub.get(key):
+                    return str(sub[key])
+    return fallback
+
+
+def build_lidc_path_index(root: Path) -> dict[str, Path]:
+    """Map series_uid -> lidc json path by scanning nested metadata/lidc/**/*.json."""
+    lidc_dir = root / "metadata" / "lidc"
+    index: dict[str, Path] = {}
+    if not lidc_dir.exists():
+        return index
+    for path in lidc_dir.rglob("*.json"):
+        try:
+            data = load_json(path)
+        except Exception:
+            continue
+        uid = _series_uid_from_lidc_doc(data)
+        if uid:
+            index[uid] = path
+    return index
+
+
+def _load_lidc_index_for_series(
+    root: Path,
+    lidc_rel: str | None,
+    series_uid: str,
+    lidc_path_index: dict[str, Path] | None = None,
+) -> dict[str, list[float]]:
+    fallbacks: list[Path] = []
+    if lidc_path_index and series_uid in lidc_path_index:
+        fallbacks.append(lidc_path_index[series_uid])
+    if (root / "metadata" / "lidc").exists():
+        fallbacks.extend((root / "metadata" / "lidc").rglob(f"*{series_uid}*.json"))
+
+    path = _resolve_under_root(root, lidc_rel, fallbacks=fallbacks)
+    if path is None and lidc_path_index and series_uid in lidc_path_index:
+        path = lidc_path_index[series_uid]
     if path is None or not path.exists():
         return {}
     try:
@@ -321,10 +357,12 @@ def build_samples(
     splits_obj = load_json(splits_path) if splits_path.exists() else {}
     patient_split = _load_patient_splits(splits_obj)
     iterable = _iter_series_entries(manifest)
+    lidc_path_index = build_lidc_path_index(root)
+    stats = _Counter()
+    stats.inc("lidc_files_indexed", len(lidc_path_index))
 
     min_rank = CONFIDENCE_RANK.get(str(min_confidence).lower(), 0)
     samples: list[NoduleSample] = []
-    stats = _Counter()
 
     for entry in iterable:
         series_uid = str(
@@ -374,8 +412,9 @@ def build_samples(
             root,
             entry.get("lidc_metadata_path") or entry.get("lidc_metadata"),
             series_uid,
+            lidc_path_index=lidc_path_index,
         )
-        if not lidc_index.get("__all__"):
+        if not lidc_index:
             stats.inc("series_without_lidc_malignancy")
 
         phys = load_json(phys_path)
