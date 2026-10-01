@@ -26,5 +26,6 @@ augmentation:
     intensity_shift: [-0.05, 0.05]
   val: {}
 
-num_workers: 2
+# 0 is safest on Colab (avoids worker RAM kills when caching 3D volumes)
+num_workers: 0
 pin_memory: true

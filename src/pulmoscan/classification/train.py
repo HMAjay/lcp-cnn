@@ -26,13 +26,10 @@ from pulmoscan.data.labels import summarize_samples
 from pulmoscan.evaluation.metrics import compute_binary_metrics
 
 
-def _estimate_pos_weight(loader: DataLoader) -> float:
-    n_pos = 0
-    n = 0
-    for batch in loader:
-        y = batch["label"]
-        n_pos += int((y > 0.5).sum().item())
-        n += int(y.numel())
+def _estimate_pos_weight_from_dataset(dataset) -> float:
+    """Compute pos_weight from labels only (no image I/O / DataLoader workers)."""
+    n_pos = sum(1 for s in dataset.samples if int(s.label) == 1)
+    n = len(dataset.samples)
     n_neg = max(n - n_pos, 1)
     return float(n_neg / max(n_pos, 1))
 
