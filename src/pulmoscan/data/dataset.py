@@ -25,7 +25,7 @@ class NoduleVOIDataset(Dataset):
         normalize: bool = True,
         augment: bool = False,
         augment_cfg: dict[str, Any] | None = None,
-        volume_cache: bool = True,
+        volume_cache: bool = False,
     ) -> None:
         self.samples = samples
         self.voi_size = tuple(int(x) for x in voi_size)

@@ -143,13 +143,15 @@ def run_training(
     print("Dataset summary:", json.dumps(summary, indent=2))
 
     bs = int(train_cfg.get("batch_size", 4))
-    nw = int(data_cfg.get("num_workers", 2))
+    nw = int(data_cfg.get("num_workers", 0))
+    # Prefer single-process loading on memory-tight hosts (Colab).
     train_loader = DataLoader(
         datasets["train"],
         batch_size=bs,
         shuffle=True,
         num_workers=nw,
-        pin_memory=device.type == "cuda",
+        pin_memory=bool(data_cfg.get("pin_memory", True)) and device.type == "cuda" and nw > 0,
+        persistent_workers=False,
     )
     val_loader = None
     if "validation" in datasets:
@@ -158,13 +160,14 @@ def run_training(
             batch_size=bs,
             shuffle=False,
             num_workers=nw,
-            pin_memory=device.type == "cuda",
+            pin_memory=bool(data_cfg.get("pin_memory", True)) and device.type == "cuda" and nw > 0,
+            persistent_workers=False,
         )
 
     model = build_model(model_cfg).to(device)
     pos_weight = train_cfg.get("loss", {}).get("pos_weight")
     if pos_weight is None:
-        pos_weight = _estimate_pos_weight(train_loader)
+        pos_weight = _estimate_pos_weight_from_dataset(datasets["train"])
     loss_fn = build_loss(
         train_cfg.get("loss", {}).get("name", "weighted_bce"),
         pos_weight=float(pos_weight),
