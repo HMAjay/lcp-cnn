@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import time
 from pathlib import Path
 from typing import Any
@@ -12,18 +13,33 @@ import torch
 from torch.utils.data import DataLoader
 from tqdm import tqdm
 
+from pulmoscan.classification.losses import build_loss
+from pulmoscan.classification.model import build_model
+from pulmoscan.common.utils import ensure_dir, get_device, load_yaml, set_seed
+from pulmoscan.data.dataset import make_datasets
+from pulmoscan.evaluation.metrics import compute_binary_metrics
+
 
 def _autocast(device: torch.device, enabled: bool):
     if device.type == "cuda":
         return torch.amp.autocast("cuda", enabled=enabled)
     return torch.amp.autocast("cpu", enabled=False)
 
-from pulmoscan.classification.losses import build_loss
-from pulmoscan.classification.model import build_model
-from pulmoscan.common.utils import ensure_dir, get_device, load_yaml, set_seed
-from pulmoscan.data.dataset import make_datasets
-from pulmoscan.data.labels import summarize_samples
-from pulmoscan.evaluation.metrics import compute_binary_metrics
+
+def _configure_runtime(train_cfg: dict[str, Any], device: torch.device) -> None:
+    """Keep startup lean: few CPU threads, no DataLoader worker farms."""
+    nthreads = int(train_cfg.get("torch_num_threads", 2))
+    torch.set_num_threads(max(1, nthreads))
+    os.environ.setdefault("OMP_NUM_THREADS", str(max(1, nthreads)))
+    os.environ.setdefault("MKL_NUM_THREADS", str(max(1, nthreads)))
+    # Avoid fork/worker storms on Colab / 4GB hosts
+    try:
+        torch.multiprocessing.set_start_method("spawn", force=False)
+    except RuntimeError:
+        pass
+    if device.type == "cuda":
+        torch.backends.cudnn.benchmark = True
+        torch.cuda.empty_cache()
 
 
 def _estimate_pos_weight_from_dataset(dataset) -> float:
@@ -58,6 +74,8 @@ def train_one_epoch(
     scaler: torch.cuda.amp.GradScaler | torch.amp.GradScaler | None,
     grad_accum: int,
     max_grad_norm: float,
+    *,
+    empty_cache_each_step: bool = False,
 ) -> float:
     model.train()
     total = 0.0
@@ -65,8 +83,8 @@ def train_one_epoch(
     optimizer.zero_grad(set_to_none=True)
     use_amp = scaler is not None and device.type == "cuda"
     for step, batch in enumerate(tqdm(loader, desc="train", leave=False)):
-        x = batch["image"].to(device)
-        y = batch["label"].to(device)
+        x = batch["image"].to(device, non_blocking=False)
+        y = batch["label"].to(device, non_blocking=False)
         with _autocast(device, enabled=use_amp):
             logits = model(x, return_logits=True)
             loss = loss_fn(logits, y) / grad_accum
@@ -84,8 +102,11 @@ def train_one_epoch(
                 torch.nn.utils.clip_grad_norm_(model.parameters(), max_grad_norm)
                 optimizer.step()
             optimizer.zero_grad(set_to_none=True)
+            if empty_cache_each_step and device.type == "cuda":
+                torch.cuda.empty_cache()
         total += float(loss.item()) * grad_accum * x.size(0)
         n += x.size(0)
+        del x, y, logits, loss
     return total / max(n, 1)
 
 
@@ -106,12 +127,24 @@ def run_training(
 
     set_seed(int(train_cfg.get("seed", 42)))
     device = get_device(device_pref)
+    _configure_runtime(train_cfg, device)
+    print(
+        f"Runtime: device={device}, cuda_mem_gb="
+        f"{(torch.cuda.get_device_properties(0).total_memory/1e9):.2f}"
+        if device.type == "cuda"
+        else f"Runtime: device={device}"
+    )
 
     if epochs is not None:
         train_cfg["epochs"] = epochs
     if batch_size is not None:
         train_cfg["batch_size"] = batch_size
 
+    # Align model declared VOI with data crop size when present
+    if "voi_size" in data_cfg:
+        model_cfg["voi_size"] = data_cfg["voi_size"]
+
+    print("Building datasets (metadata only; volumes load lazily per sample)...")
     datasets = make_datasets(data_root, data_cfg)
     if "train" not in datasets:
         # Print label-build stats to help debug empty datasets
@@ -142,16 +175,22 @@ def run_training(
     }
     print("Dataset summary:", json.dumps(summary, indent=2))
 
-    bs = int(train_cfg.get("batch_size", 4))
+    bs = int(train_cfg.get("batch_size", 1))
+    # Hard-cap workers: lazy single-process load (no thread/process farm at start)
     nw = int(data_cfg.get("num_workers", 0))
-    # Prefer single-process loading on memory-tight hosts (Colab).
+    if nw != 0:
+        print(f"Warning: forcing num_workers 0 (was {nw}) for lazy 4GB-safe loading")
+        nw = 0
+    loader_kwargs: dict[str, Any] = {
+        "num_workers": 0,
+        "pin_memory": False,
+        "persistent_workers": False,
+    }
     train_loader = DataLoader(
         datasets["train"],
         batch_size=bs,
         shuffle=True,
-        num_workers=nw,
-        pin_memory=bool(data_cfg.get("pin_memory", True)) and device.type == "cuda" and nw > 0,
-        persistent_workers=False,
+        **loader_kwargs,
     )
     val_loader = None
     if "validation" in datasets:
@@ -159,12 +198,13 @@ def run_training(
             datasets["validation"],
             batch_size=bs,
             shuffle=False,
-            num_workers=nw,
-            pin_memory=bool(data_cfg.get("pin_memory", True)) and device.type == "cuda" and nw > 0,
-            persistent_workers=False,
+            **loader_kwargs,
         )
 
+    print("Building model...")
     model = build_model(model_cfg).to(device)
+    n_params = sum(p.numel() for p in model.parameters())
+    print(f"Trainable params: {n_params/1e6:.2f}M")
     pos_weight = train_cfg.get("loss", {}).get("pos_weight")
     if pos_weight is None:
         pos_weight = _estimate_pos_weight_from_dataset(datasets["train"])
@@ -210,6 +250,7 @@ def run_training(
             scaler if scaler.is_enabled() else None,
             grad_accum=int(train_cfg.get("grad_accum_steps", 1)),
             max_grad_norm=float(train_cfg.get("max_grad_norm", 1.0)),
+            empty_cache_each_step=bool(train_cfg.get("empty_cache_each_step", False)),
         )
         scheduler.step()
         row: dict[str, Any] = {"epoch": epoch, "train_loss": train_loss, "seconds": time.time() - t0}
@@ -252,6 +293,8 @@ def run_training(
                 {"model_state": model.state_dict(), "model_cfg": model_cfg, "epoch": epoch},
                 out_dir / f"epoch_{epoch+1:03d}.pt",
             )
+        if bool(train_cfg.get("empty_cache_each_epoch", True)) and device.type == "cuda":
+            torch.cuda.empty_cache()
 
     hist_path = out_dir / "history.json"
     with hist_path.open("w", encoding="utf-8") as f:
@@ -263,19 +306,31 @@ def run_training(
 def main() -> None:
     parser = argparse.ArgumentParser(description="Train PulmoScan hybrid CNN–Swin")
     parser.add_argument("--data-root", default=None, help="Processed LIDC root (or synthetic)")
-    parser.add_argument("--model-config", default="configs/model/hybrid_cnn_swin.yaml")
-    parser.add_argument("--data-config", default="configs/data/lidc_processed.yaml")
-    parser.add_argument("--train-config", default="configs/train/default.yaml")
+    parser.add_argument("--model-config", default="configs/model/hybrid_cnn_swin_4gb.yaml")
+    parser.add_argument("--data-config", default="configs/data/lidc_4gb.yaml")
+    parser.add_argument("--train-config", default="configs/train/colab_4gb.yaml")
+    parser.add_argument(
+        "--preset",
+        choices=["4gb", "default"],
+        default="4gb",
+        help="Config preset (4gb = lazy load + small model for <=4GB VRAM)",
+    )
     parser.add_argument("--epochs", type=int, default=None)
     parser.add_argument("--batch-size", type=int, default=None)
     parser.add_argument("--device", default="auto")
-    parser.add_argument("--output-dir", default="./artifacts/checkpoints")
+    parser.add_argument("--output-dir", default="./artifacts/checkpoints_4gb")
     args = parser.parse_args()
+
+    if args.preset == "default":
+        if args.model_config.endswith("hybrid_cnn_swin_4gb.yaml"):
+            args.model_config = "configs/model/hybrid_cnn_swin.yaml"
+        if args.data_config.endswith("lidc_4gb.yaml"):
+            args.data_config = "configs/data/lidc_processed.yaml"
+        if args.train_config.endswith("colab_4gb.yaml"):
+            args.train_config = "configs/train/default.yaml"
 
     data_root = args.data_root
     if data_root is None:
-        import os
-
         data_root = os.environ.get("PULMOSCAN_DATA_ROOT", "./data/processed")
 
     result = run_training(

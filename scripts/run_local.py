@@ -74,6 +74,8 @@ def cmd_train(args: argparse.Namespace) -> None:
         sys.executable,
         "-m",
         "pulmoscan.classification.train",
+        "--preset",
+        args.preset,
         "--data-root",
         args.data_root,
         "--epochs",
@@ -198,9 +200,10 @@ def main() -> None:
 
     p = sub.add_parser("train", help="Train hybrid CNN+Swin")
     p.add_argument("--data-root", required=True)
-    p.add_argument("--output-dir", default="./artifacts/checkpoints_v2")
+    p.add_argument("--output-dir", default="./artifacts/checkpoints_4gb")
+    p.add_argument("--preset", choices=["4gb", "default"], default="4gb")
     p.add_argument("--epochs", type=int, default=30)
-    p.add_argument("--batch-size", type=int, default=4)
+    p.add_argument("--batch-size", type=int, default=1)
     p.add_argument("--device", default="auto", choices=["auto", "cpu", "cuda"])
     p.set_defaults(func=cmd_train)
 

@@ -1,0 +1,22 @@
+seed: 42
+epochs: 30
+batch_size: 1
+lr: 1.0e-4
+weight_decay: 1.0e-4
+warmup_epochs: 2
+grad_accum_steps: 8
+max_grad_norm: 1.0
+amp: true
+early_stopping_patience: 8
+empty_cache_each_epoch: true
+empty_cache_each_step: true
+torch_num_threads: 2
+
+loss:
+  name: weighted_bce
+  focal_gamma: 2.0
+  pos_weight: null
+
+checkpoint_dir: ./artifacts/checkpoints_4gb
+log_dir: ./artifacts/logs
+save_every: 5

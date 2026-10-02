@@ -1,0 +1,22 @@
+name: hybrid_cnn_swin_4gb
+voi_size: [32, 32, 32]
+in_channels: 1
+
+backbone:
+  name: resnet3d18
+  base_channels: 16
+  out_channels: 128
+
+swin:
+  embed_dim: 128
+  depths: [1, 1]
+  num_heads: [2, 4]
+  window_size: [2, 2, 2]
+  mlp_ratio: 4.0
+  dropout: 0.1
+  attn_dropout: 0.0
+  drop_path: 0.05
+
+head:
+  hidden_dim: 64
+  dropout: 0.3

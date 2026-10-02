@@ -71,9 +71,20 @@ def test_synthetic_dataset_pipeline(tmp_path):
         "labeling": {"malignant_min": 4.0, "benign_max": 2.0, "min_confidence": "medium"},
         "augmentation": {"train": {"flip_prob": 0.5}},
         "num_workers": 0,
+        "volume_cache": False,
+        "voi_cache_size": 0,
     }
     datasets = make_datasets(root, data_cfg)
     assert "train" in datasets and len(datasets["train"]) >= 1
     item = datasets["train"][0]
-    assert item["image"].shape[0] == 1
+    assert item["image"].shape == (1, 32, 32, 32)
     assert item["label"] in (0.0, 1.0)
+
+
+def test_4gb_model_config_forward():
+    cfg = load_yaml("configs/model/hybrid_cnn_swin_4gb.yaml")
+    model = build_model(cfg)
+    x = torch.randn(1, 1, 32, 32, 32)
+    p = model(x)
+    assert p.shape == (1,)
+    assert 0.0 <= float(p.item()) <= 1.0

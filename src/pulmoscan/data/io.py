@@ -9,15 +9,19 @@ import nibabel as nib
 import numpy as np
 
 
-def load_nifti(path: str | Path) -> tuple[np.ndarray, np.ndarray]:
-    """Load NIfTI as float32 array (Z, Y, X) and affine."""
-    img = nib.load(str(path))
-    data = np.asanyarray(img.dataobj).astype(np.float32)
-    # nibabel is often (X, Y, Z); convert to (D, H, W) = (Z, Y, X)
+def load_nifti(path: str | Path, *, mmap: bool = True) -> tuple[np.ndarray, np.ndarray]:
+    """Load NIfTI as float32 array (Z, Y, X) and affine.
+
+    Uses memory-mapping by default so full volumes are not eagerly copied into RAM.
+    """
+    img = nib.load(str(path), mmap=mmap)
+    # Keep as array view when possible; cast on crop/window later if needed
+    data = np.asanyarray(img.dataobj)
     if data.ndim != 3:
         raise ValueError(f"Expected 3D volume, got shape {data.shape} from {path}")
+    # nibabel is often (X, Y, Z); convert to (D, H, W) = (Z, Y, X)
     data = np.transpose(data, (2, 1, 0))
-    return data, img.affine
+    return data, np.asarray(img.affine)
 
 
 def window_normalize(
@@ -29,7 +33,7 @@ def window_normalize(
     out = np.clip(volume, lo, hi)
     if normalize:
         out = (out - lo) / max(hi - lo, 1e-6)
-    return out.astype(np.float32)
+    return out.astype(np.float32, copy=False)
 
 
 def crop_voi(
@@ -57,9 +61,8 @@ def crop_voi(
     dst_x1 = dst_x0 + (src_x1 - src_x0)
 
     if src_z1 > src_z0 and src_y1 > src_y0 and src_x1 > src_x0:
-        out[dst_z0:dst_z1, dst_y0:dst_y1, dst_x0:dst_x1] = volume[
-            src_z0:src_z1, src_y0:src_y1, src_x0:src_x1
-        ]
+        patch = np.asanyarray(volume[src_z0:src_z1, src_y0:src_y1, src_x0:src_x1])
+        out[dst_z0:dst_z1, dst_y0:dst_y1, dst_x0:dst_x1] = patch.astype(np.float32, copy=False)
     return out
 
 

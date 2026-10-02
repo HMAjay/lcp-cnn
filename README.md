@@ -21,7 +21,7 @@ Stage-1 detection (3D U-Net) is deferred; this slice scores VOIs from existing p
 
 - **Architecture:** hybrid CNN backbone + Swin Transformer (not pure Swin, not ViT)
 - **Labels:** physical nodules; mean LIDC malignancy ≥4 = malignant, ≤2 = benign; score 3 excluded
-- **VOI:** 48³ mm at your 1 mm isotropic spacing
+- **VOI (4GB preset):** 32³ with lazy mmap load (`num_workers=0`); full preset uses 48³
 - **Training:** Colab GPU for real data; local CPU for synthetic smoke tests
 
 ## Data
@@ -53,14 +53,23 @@ python -m pulmoscan.classification.train \
 python -m pulmoscan.inference.demo_app --port 7865
 ```
 
-## Train on Colab (your ~3 GB LIDC set)
+## Train on Colab (4GB-safe preset)
 
-This environment has no GPU. Use Colab:
+Optimized for ≤4GB VRAM / Colab: lazy NIfTI mmap, no DataLoader workers, small model, AMP, grad accum 8, batch size 1.
 
 1. Upload `data/processed/` to Google Drive (~3 GB).
 2. Open [`notebooks/PulmoScan_Colab_Train.ipynb`](notebooks/PulmoScan_Colab_Train.ipynb) in Colab (**GPU runtime**).
 3. Clone/upload this repo, set `DATA_ROOT`, run train + eval cells.
 4. Download `best.pt` and run the local Gradio demo with that checkpoint.
+
+```bash
+# after pip install -e . and setting DATA_ROOT to your processed tree
+python -m pulmoscan.classification.train \
+  --preset 4gb \
+  --data-root "$DATA_ROOT" \
+  --device cuda \
+  --output-dir ./artifacts/checkpoints_4gb
+```
 
 ```bash
 PULMOSCAN_CHECKPOINT=./best.pt python -m pulmoscan.inference.demo_app --port 7865
@@ -77,9 +86,12 @@ python -m pulmoscan.evaluation.evaluate \
 
 ## Configs
 
-- `configs/model/hybrid_cnn_swin.yaml` — CNN + Swin capacity
-- `configs/data/lidc_processed.yaml` — VOI, HU window, label rule
-- `configs/train/default.yaml` — epochs, AMP, early stopping
+| Preset | Model | Data | Train |
+|--------|-------|------|-------|
+| **4gb** (default CLI) | `configs/model/hybrid_cnn_swin_4gb.yaml` | `configs/data/lidc_4gb.yaml` | `configs/train/colab_4gb.yaml` |
+| default | `configs/model/hybrid_cnn_swin.yaml` | `configs/data/lidc_processed.yaml` | `configs/train/default.yaml` |
+
+Use `--preset default` for the larger 48³ / higher-capacity setup when you have more VRAM.
 
 ## Tests
 

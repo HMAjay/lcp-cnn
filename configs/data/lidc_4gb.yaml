@@ -1,0 +1,29 @@
+# LIDC processed data config tuned for 4GB VRAM / Colab
+data_root: ${oc.env:PULMOSCAN_DATA_ROOT,./data/processed}
+manifest: manifests/dataset_manifest.json
+splits: manifests/patient_splits.json
+
+voi_size: [32, 32, 32]
+hu_window: [-1000, 400]
+normalize: true
+
+labeling:
+  malignant_min: 4.0
+  benign_max: 2.0
+  use_physical_nodules: true
+  min_confidence: low
+  require_centroid: true
+
+augmentation:
+  train:
+    flip_prob: 0.5
+    rotate90_prob: 0.5
+    intensity_scale: [0.9, 1.1]
+    intensity_shift: [-0.05, 0.05]
+  val: {}
+
+# Lazy load: no worker processes, no full-volume RAM cache
+num_workers: 0
+pin_memory: false
+volume_cache: false
+voi_cache_size: 32

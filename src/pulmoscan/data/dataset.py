@@ -1,7 +1,8 @@
-"""PyTorch dataset for nodule VOIs."""
+"""PyTorch dataset for nodule VOIs — lazy load by default (4GB-friendly)."""
 
 from __future__ import annotations
 
+from collections import OrderedDict
 from pathlib import Path
 from typing import Any
 
@@ -14,7 +15,13 @@ from pulmoscan.data.labels import NoduleSample, build_samples
 
 
 class NoduleVOIDataset(Dataset):
-    """Crops 3D VOIs around physical nodules and returns (1, D, H, W) tensors."""
+    """Crops 3D VOIs around physical nodules and returns (1, D, H, W) tensors.
+
+    Lazy by default:
+    - no volumes loaded in __init__
+    - each __getitem__ memory-maps NIfTI, crops VOI, discards volume
+    - optional tiny LRU cache of cropped VOIs only (not full CTs)
+    """
 
     def __init__(
         self,
@@ -26,6 +33,7 @@ class NoduleVOIDataset(Dataset):
         augment: bool = False,
         augment_cfg: dict[str, Any] | None = None,
         volume_cache: bool = False,
+        voi_cache_size: int = 0,
     ) -> None:
         self.samples = samples
         self.voi_size = tuple(int(x) for x in voi_size)
@@ -34,18 +42,24 @@ class NoduleVOIDataset(Dataset):
         self.augment = augment
         self.augment_cfg = augment_cfg or {}
         self.volume_cache = volume_cache
-        self._cache: dict[str, tuple[np.ndarray, np.ndarray]] = {}
+        self.voi_cache_size = int(voi_cache_size)
+        self._volume_cache: dict[str, tuple[np.ndarray, np.ndarray]] = {}
+        self._voi_cache: OrderedDict[str, np.ndarray] = OrderedDict()
 
     def __len__(self) -> int:
         return len(self.samples)
 
+    def _cache_key(self, sample: NoduleSample) -> str:
+        return f"{sample.series_uid}:{sample.physical_id}:{self.voi_size}"
+
     def _get_volume(self, path: str) -> tuple[np.ndarray, np.ndarray]:
-        if self.volume_cache and path in self._cache:
-            return self._cache[path]
-        vol, affine = load_nifti(path)
-        vol = window_normalize(vol, self.hu_window, self.normalize)
+        if self.volume_cache and path in self._volume_cache:
+            return self._volume_cache[path]
+        # mmap=True: avoid eager full-volume RAM copy at open
+        vol, affine = load_nifti(path, mmap=True)
         if self.volume_cache:
-            self._cache[path] = (vol, affine)
+            # Caching full volumes is expensive; only when explicitly enabled
+            self._volume_cache[path] = (vol, affine)
         return vol, affine
 
     def _augment(self, voi: np.ndarray) -> np.ndarray:
@@ -66,12 +80,27 @@ class NoduleVOIDataset(Dataset):
 
     def __getitem__(self, idx: int) -> dict[str, Any]:
         sample = self.samples[idx]
-        vol, affine = self._get_volume(sample.volume_path)
-        center = patient_to_voxel_zyx(sample.centroid_patient_mm, affine)
-        voi = crop_voi(vol, center, self.voi_size, fill=0.0)
-        if self.augment:
-            voi = self._augment(voi)
-        tensor = torch.from_numpy(voi).unsqueeze(0).float()  # (1, D, H, W)
+        key = self._cache_key(sample)
+
+        if self.voi_cache_size > 0 and key in self._voi_cache and not self.augment:
+            voi = self._voi_cache[key]
+            self._voi_cache.move_to_end(key)
+        else:
+            vol, affine = self._get_volume(sample.volume_path)
+            center = patient_to_voxel_zyx(sample.centroid_patient_mm, affine)
+            # Fill OOB with HU window floor so normalization maps padding to ~0
+            voi = crop_voi(vol, center, self.voi_size, fill=float(self.hu_window[0]))
+            voi = window_normalize(voi, self.hu_window, self.normalize)
+            # Drop volume reference ASAP (lazy: do not keep full CT)
+            del vol
+            if self.augment:
+                voi = self._augment(voi)
+            elif self.voi_cache_size > 0:
+                self._voi_cache[key] = voi
+                while len(self._voi_cache) > self.voi_cache_size:
+                    self._voi_cache.popitem(last=False)
+
+        tensor = torch.from_numpy(np.ascontiguousarray(voi)).unsqueeze(0).float()
         return {
             "image": tensor,
             "label": torch.tensor(sample.label, dtype=torch.float32),
@@ -98,6 +127,8 @@ def make_datasets(
     hu_window = tuple(data_cfg.get("hu_window", [-1000, 400]))
     normalize = bool(data_cfg.get("normalize", True))
     aug = data_cfg.get("augmentation", {})
+    volume_cache = bool(data_cfg.get("volume_cache", False))
+    voi_cache_size = int(data_cfg.get("voi_cache_size", 0))
 
     out: dict[str, NoduleVOIDataset] = {}
     for split, augment in (("train", True), ("validation", False), ("test", False)):
@@ -111,5 +142,7 @@ def make_datasets(
             normalize=normalize,
             augment=augment,
             augment_cfg=aug.get("train", {}) if augment else {},
+            volume_cache=volume_cache,
+            voi_cache_size=0 if augment else voi_cache_size,
         )
     return out

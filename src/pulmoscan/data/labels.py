@@ -268,20 +268,62 @@ def _series_uid_from_lidc_doc(data: Any, fallback: str = "") -> str:
     return fallback
 
 
+def _series_uid_from_text(text: str) -> str:
+    m = re.search(r'"series_instance_uid"\s*:\s*"([^"]+)"', text)
+    if m:
+        return m.group(1)
+    m = re.search(r'"SeriesInstanceUID"\s*:\s*"([^"]+)"', text)
+    return m.group(1) if m else ""
+
+
 def build_lidc_path_index(root: Path) -> dict[str, Path]:
-    """Map series_uid -> lidc json path by scanning nested metadata/lidc/**/*.json."""
+    """Map series_uid -> lidc json path.
+
+    Lazy/cheap at startup:
+    - reuse manifests/lidc_path_index.json if present
+    - otherwise scan files with a lightweight regex (no full JSON parse)
+    - write cache for next run
+    """
     lidc_dir = root / "metadata" / "lidc"
+    cache_path = root / "manifests" / "lidc_path_index.json"
     index: dict[str, Path] = {}
     if not lidc_dir.exists():
         return index
+
+    if cache_path.exists():
+        try:
+            raw = load_json(cache_path)
+            for uid, rel in (raw or {}).items():
+                p = root / rel if not Path(rel).is_absolute() else Path(rel)
+                if p.exists():
+                    index[str(uid)] = p
+            if index:
+                return index
+        except Exception:
+            index = {}
+
     for path in lidc_dir.rglob("*.json"):
         try:
-            data = load_json(path)
+            # Read a small prefix first; fall back to full text if needed
+            with path.open("r", encoding="utf-8", errors="ignore") as f:
+                chunk = f.read(4096)
+                uid = _series_uid_from_text(chunk)
+                if not uid:
+                    uid = _series_uid_from_text(chunk + f.read(65536))
         except Exception:
             continue
-        uid = _series_uid_from_lidc_doc(data)
         if uid:
             index[uid] = path
+
+    try:
+        cache_path.parent.mkdir(parents=True, exist_ok=True)
+        serializable = {
+            uid: str(path.relative_to(root)).replace("\\", "/")
+            for uid, path in index.items()
+        }
+        cache_path.write_text(json.dumps(serializable, indent=2), encoding="utf-8")
+    except Exception:
+        pass
     return index
 
 
