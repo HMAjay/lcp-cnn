@@ -37,13 +37,20 @@ flowchart TB
         TOK --> S1 --> PM --> S2 --> CLS
     end
 
-    subgraph HEAD["Classification Head"]
-        LN["LayerNorm"]
-        FC1["Linear → GELU → Dropout"]
-        FC2["Linear → 1 logit"]
-        SIG["Sigmoid"]
-        OUT["P(malignant) ∈ [0, 1]"]
-        LN --> FC1 --> FC2 --> SIG --> OUT
+    subgraph HEAD["TG-Hybrid heads (on shared CLS)"]
+        CON["Concept head: texture, spiculation, margin, sphericity"]
+        GATE["Gate: P(subsolid)"]
+        SOL["Solid expert"]
+        SUB["Subsolid expert"]
+        ABS["Abstain head (LIDC score ~3)"]
+        MIX["P(malignant) = (1−g)·p_solid + g·p_subsolid"]
+        GATE --> MIX
+        SOL --> MIX
+        SUB --> MIX
+        CON --- GATE
+        ABS --- MIX
+        OUT["P(malignant) ∈ [0, 1] + optional abstain"]
+        MIX --> OUT
     end
 
     subgraph XAI["Explainability"]
@@ -55,7 +62,11 @@ flowchart TB
 
     VOI --> STEM
     FEAT --> TOK
-    CLS --> LN
+    CLS --> CON
+    CLS --> GATE
+    CLS --> SOL
+    CLS --> SUB
+    CLS --> ABS
     CLS -.-> ATTN
 ```
 
@@ -65,7 +76,7 @@ flowchart TB
 flowchart LR
     A["Preprocessed LIDC<br/>volumes + manifests"] --> B["labels.py<br/>malignancy ≥4 / ≤2"]
     B --> C["dataset.py<br/>crop 48³ VOI"]
-    C --> D["HybridCNNSwin"]
+    C --> D["TG-Hybrid CNN–Swin"]
     D --> E["P(malignant)"]
     D --> F["Attention overlay"]
 ```

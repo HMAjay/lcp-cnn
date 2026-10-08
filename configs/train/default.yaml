@@ -1,5 +1,5 @@
 seed: 42
-epochs: 30
+epochs: 40
 batch_size: 4
 lr: 1.0e-4
 weight_decay: 1.0e-4
@@ -7,12 +7,22 @@ warmup_epochs: 2
 grad_accum_steps: 2
 max_grad_norm: 1.0
 amp: true
-early_stopping_patience: 8
+early_stopping_patience: 12
+balanced_sampler: true
+mixup_alpha: 0.2
+ema: true
+ema_decay: 0.998
+tta: false
 
 loss:
-  name: weighted_bce  # weighted_bce | focal
+  name: tg_hybrid  # tg_hybrid | weighted_bce | focal
   focal_gamma: 2.0
   pos_weight: null  # auto from train set if null
+  lambda_mal: 1.0
+  lambda_concept: 0.25
+  lambda_gate: 0.25
+  lambda_expert: 0.35
+  lambda_abstain: 0.2
 
 checkpoint_dir: ./artifacts/checkpoints
 log_dir: ./artifacts/logs

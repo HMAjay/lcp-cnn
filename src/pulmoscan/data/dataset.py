@@ -71,6 +71,9 @@ class NoduleVOIDataset(Dataset):
             k = np.random.randint(0, 4)
             axes = [(1, 2), (0, 2), (0, 1)][np.random.randint(0, 3)]
             voi = np.rot90(voi, k=k, axes=axes).copy()
+        noise_std = float(cfg.get("gaussian_noise_std", 0.0))
+        if noise_std > 0:
+            voi = voi + np.random.normal(0.0, noise_std, size=voi.shape).astype(np.float32)
         scale_rng = cfg.get("intensity_scale", [1.0, 1.0])
         shift_rng = cfg.get("intensity_shift", [0.0, 0.0])
         scale = np.random.uniform(float(scale_rng[0]), float(scale_rng[1]))
@@ -101,9 +104,19 @@ class NoduleVOIDataset(Dataset):
                     self._voi_cache.popitem(last=False)
 
         tensor = torch.from_numpy(np.ascontiguousarray(voi)).unsqueeze(0).float()
+        mal_label = 0.0 if sample.label < 0 else float(sample.label)
+        concepts = torch.tensor(
+            [sample.texture, sample.spiculation, sample.margin, sample.sphericity],
+            dtype=torch.float32,
+        )
         return {
             "image": tensor,
-            "label": torch.tensor(sample.label, dtype=torch.float32),
+            "label": torch.tensor(mal_label, dtype=torch.float32),
+            "malignancy_weight": torch.tensor(0.0 if sample.label < 0 else 1.0, dtype=torch.float32),
+            "concepts": concepts,
+            "attr_mask": torch.tensor(sample.attr_mask, dtype=torch.float32),
+            "subsolid": torch.tensor(float(sample.subsolid), dtype=torch.float32),
+            "uncertain": torch.tensor(1.0 if sample.is_uncertain else 0.0, dtype=torch.float32),
             "series_uid": sample.series_uid,
             "physical_id": sample.physical_id,
             "patient_id": sample.patient_id,
@@ -122,6 +135,8 @@ def make_datasets(
         benign_max=float(labeling.get("benign_max", 2.0)),
         min_confidence=labeling.get("min_confidence", "medium"),
         use_physical_nodules=bool(labeling.get("use_physical_nodules", True)),
+        include_uncertain=bool(labeling.get("include_uncertain", False)),
+        subsolid_texture_max=float(labeling.get("subsolid_texture_max", 3.0)),
     )
     voi_size = tuple(data_cfg.get("voi_size", [48, 48, 48]))
     hu_window = tuple(data_cfg.get("hu_window", [-1000, 400]))

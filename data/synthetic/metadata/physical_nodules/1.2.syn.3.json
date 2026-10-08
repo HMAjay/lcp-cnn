@@ -14,13 +14,21 @@
         {
           "session_index": 0,
           "characteristics": {
-            "malignancy": 1.0
+            "malignancy": 1.0,
+            "texture": 4.0,
+            "spiculation": 1.0,
+            "margin": 4.0,
+            "sphericity": 5.0
           }
         },
         {
           "session_index": 1,
           "characteristics": {
-            "malignancy": 1.0
+            "malignancy": 1.0,
+            "texture": 4.0,
+            "spiculation": 1.0,
+            "margin": 4.0,
+            "sphericity": 5.0
           }
         }
       ]

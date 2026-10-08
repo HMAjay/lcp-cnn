@@ -55,13 +55,26 @@ class HybridCNNSwin(nn.Module):
         )
         self.last_tokens: torch.Tensor | None = None
         self.last_feat: torch.Tensor | None = None
+        self.last_cls: torch.Tensor | None = None
 
-    def forward(self, x: torch.Tensor, return_logits: bool = False) -> torch.Tensor:
+    def encode(self, x: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         feat = self.backbone(x)
         self.last_feat = feat
         cls, tokens = self.swin(feat)
         self.last_tokens = tokens
+        self.last_cls = cls
+        return cls, tokens, feat
+
+    def forward(
+        self,
+        x: torch.Tensor,
+        return_logits: bool = False,
+        return_aux: bool = False,
+    ) -> torch.Tensor | dict[str, torch.Tensor]:
+        cls, _tokens, _feat = self.encode(x)
         logits = self.head(cls).squeeze(-1)
+        if return_aux:
+            return {"malignancy_logits": logits, "prob": torch.sigmoid(logits)}
         if return_logits:
             return logits
         return torch.sigmoid(logits)
@@ -111,5 +124,75 @@ class HybridCNNSwin(nn.Module):
         return n, 1, 1
 
 
+class TGHybridCNNSwin(HybridCNNSwin):
+    """Texture-gated dual-expert head on the shared CNN–Swin CLS embedding.
+
+    Extra vs the baseline hybrid:
+      - concept head (texture, spiculation, margin, sphericity)
+      - gate P(subsolid)
+      - solid / subsolid malignancy experts mixed by the gate
+      - abstain head for indeterminate (LIDC score ~3) nodules
+    """
+
+    def __init__(self, cfg: dict[str, Any] | None = None) -> None:
+        super().__init__(cfg)
+        cfg = cfg or {}
+        tg = cfg.get("tg_hybrid_head", cfg.get("head", {}))
+        hidden = int(tg.get("hidden_dim", cfg.get("head", {}).get("hidden_dim", 128)))
+        dropout = float(tg.get("dropout", cfg.get("head", {}).get("dropout", 0.3)))
+        dim = self.swin.out_dim
+
+        def _mlp(out_dim: int) -> nn.Sequential:
+            return nn.Sequential(
+                nn.LayerNorm(dim),
+                nn.Linear(dim, hidden),
+                nn.GELU(),
+                nn.Dropout(dropout),
+                nn.Linear(hidden, out_dim),
+            )
+
+        # Reuse baseline MLP as the solid expert so ablations stay comparable.
+        self.solid_head = self.head
+        self.subsolid_head = _mlp(1)
+        self.gate_head = _mlp(1)
+        self.concept_head = _mlp(4)
+        self.abstain_head = _mlp(1)
+
+    def forward(
+        self,
+        x: torch.Tensor,
+        return_logits: bool = False,
+        return_aux: bool = False,
+    ) -> torch.Tensor | dict[str, torch.Tensor]:
+        cls, _tokens, _feat = self.encode(x)
+        solid_logits = self.solid_head(cls).squeeze(-1)
+        subsolid_logits = self.subsolid_head(cls).squeeze(-1)
+        gate_logits = self.gate_head(cls).squeeze(-1)
+        gate = torch.sigmoid(gate_logits)
+        # Mix expert probabilities, then convert back to logits for BCE-with-logits.
+        mixed_prob = (1.0 - gate) * torch.sigmoid(solid_logits) + gate * torch.sigmoid(subsolid_logits)
+        mixed_prob = mixed_prob.clamp(1e-4, 1.0 - 1e-4)
+        malignancy_logits = torch.logit(mixed_prob)
+        concepts = self.concept_head(cls)
+        abstain_logits = self.abstain_head(cls).squeeze(-1)
+        if return_aux:
+            return {
+                "malignancy_logits": malignancy_logits,
+                "solid_logits": solid_logits,
+                "subsolid_logits": subsolid_logits,
+                "gate_logits": gate_logits,
+                "concepts": concepts,
+                "abstain_logits": abstain_logits,
+                "prob": mixed_prob,
+                "gate": gate,
+            }
+        if return_logits:
+            return malignancy_logits
+        return mixed_prob
+
+
 def build_model(cfg: dict[str, Any] | None = None) -> HybridCNNSwin:
+    cfg = cfg or {}
+    if bool(cfg.get("tg_hybrid", False)):
+        return TGHybridCNNSwin(cfg)
     return HybridCNNSwin(cfg)

@@ -23,6 +23,7 @@ def main() -> None:
     parser.add_argument("--data-config", default="configs/data/lidc_processed.yaml")
     parser.add_argument("--batch-size", type=int, default=4)
     parser.add_argument("--device", default="auto")
+    parser.add_argument("--tta", action="store_true", help="Average prediction with a left-right flip")
     parser.add_argument("--out", default="./artifacts/eval_metrics.json")
     args = parser.parse_args()
 
@@ -37,7 +38,7 @@ def main() -> None:
     if args.split not in datasets:
         raise SystemExit(f"No samples for split={args.split}")
     loader = DataLoader(datasets[args.split], batch_size=args.batch_size, shuffle=False)
-    metrics = evaluate(model, loader, device)
+    metrics = evaluate(model, loader, device, tta=bool(args.tta))
     out = Path(args.out)
     out.parent.mkdir(parents=True, exist_ok=True)
     with out.open("w", encoding="utf-8") as f:

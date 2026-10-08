@@ -9,18 +9,26 @@
         40.0,
         47.0
       ],
-      "malignancy_mean": 1.0,
+      "malignancy_mean": 5.0,
       "observations": [
         {
           "session_index": 0,
           "characteristics": {
-            "malignancy": 1.0
+            "malignancy": 5.0,
+            "texture": 2.0,
+            "spiculation": 5.0,
+            "margin": 2.0,
+            "sphericity": 2.0
           }
         },
         {
           "session_index": 1,
           "characteristics": {
-            "malignancy": 1.0
+            "malignancy": 5.0,
+            "texture": 2.0,
+            "spiculation": 5.0,
+            "margin": 2.0,
+            "sphericity": 2.0
           }
         }
       ]

@@ -1,6 +1,6 @@
 # PulmoScan AI
 
-Hybrid **3D CNN + Swin Transformer** for pulmonary nodule malignancy risk prediction (LIDC-IDRI).
+Hybrid **3D CNN + Swin Transformer** with a **texture-gated dual-expert (TG-Hybrid)** head for pulmonary nodule malignancy risk prediction (LIDC-IDRI).
 
 > Research use only. Not a medical diagnosis.
 
@@ -8,7 +8,7 @@ Hybrid **3D CNN + Swin Transformer** for pulmonary nodule malignancy risk predic
 
 | Piece | Role |
 |-------|------|
-| `src/pulmoscan/classification/` | 3D ResNet-style CNN → Swin3D encoder → sigmoid risk score |
+| `src/pulmoscan/classification/` | 3D ResNet-style CNN → Swin3D → CLS pool → TG-Hybrid heads (concepts, solid/subsolid experts, abstain) |
 | `src/pulmoscan/data/` | Loaders for your preprocessed LIDC layout + synthetic smoke data |
 | `src/pulmoscan/evaluation/` | AUC, sensitivity/specificity, Brier, confusion counts |
 | `src/pulmoscan/xai/` | CLS-attention overlay helpers |
@@ -19,8 +19,9 @@ Stage-1 detection (3D U-Net) is deferred; this slice scores VOIs from existing p
 
 ## Defaults chosen
 
-- **Architecture:** hybrid CNN backbone + Swin Transformer (not pure Swin, not ViT)
-- **Labels:** physical nodules; mean LIDC malignancy ≥4 = malignant, ≤2 = benign; score 3 excluded
+- **Architecture:** hybrid CNN + Swin backbone, plus TG-Hybrid heads (not a new CLS token). Disable with `--no-tg-hybrid`.
+- **Labels:** mean LIDC malignancy ≥4 malignant, ≤2 benign; score 3 kept as *uncertain* for the abstain head
+- **Metrics:** report `val_auc` and `val_accuracy_tuned` (Youden). Accuracy at 0.5 is often ~majority-class (e.g. 0.65) even when ranking is decent.
 - **VOI (4GB preset):** 32³ with lazy mmap load (`num_workers=0`); full preset uses 48³
 - **Training:** Colab GPU for real data; local CPU for synthetic smoke tests
 
@@ -91,7 +92,13 @@ python -m pulmoscan.evaluation.evaluate \
 | **4gb** (default CLI) | `configs/model/hybrid_cnn_swin_4gb.yaml` | `configs/data/lidc_4gb.yaml` | `configs/train/colab_4gb.yaml` |
 | default | `configs/model/hybrid_cnn_swin.yaml` | `configs/data/lidc_processed.yaml` | `configs/train/default.yaml` |
 
-Use `--preset default` for the larger 48³ / higher-capacity setup when you have more VRAM.
+Use `--preset default` for the larger 48³ / higher-capacity setup when you have more VRAM (recommended if the GPU is a T4/16GB — the 4GB preset underfits and often stalls near majority-class accuracy).
+
+Ablation (single-head hybrid, no TG-Hybrid):
+
+```bash
+python -m pulmoscan.classification.train --preset default --no-tg-hybrid --data-root "$DATA_ROOT"
+```
 
 ## Tests
 

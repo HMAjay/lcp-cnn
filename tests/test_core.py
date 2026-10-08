@@ -5,7 +5,8 @@ from __future__ import annotations
 import numpy as np
 import torch
 
-from pulmoscan.classification.model import build_model
+from pulmoscan.classification.losses import TGHybridLoss
+from pulmoscan.classification.model import TGHybridCNNSwin, build_model
 from pulmoscan.data.io import crop_voi, window_normalize
 from pulmoscan.data.labels import _label_from_score
 from pulmoscan.data.synthetic import generate_synthetic_dataset
@@ -18,6 +19,7 @@ def test_label_rule():
     assert _label_from_score(4.0, 4.0, 2.0) == 1
     assert _label_from_score(1.5, 4.0, 2.0) == 0
     assert _label_from_score(3.0, 4.0, 2.0) is None
+    assert _label_from_score(3.0, 4.0, 2.0, include_uncertain=True) == -1
 
 
 def test_crop_and_window():
@@ -60,6 +62,9 @@ def test_metrics():
     m = compute_binary_metrics(y, p)
     assert 0.0 <= m["auc"] <= 1.0
     assert "sensitivity" in m
+    assert "best_threshold" in m
+    tuned = compute_binary_metrics(y, p, threshold=m["best_threshold"])
+    assert 0.0 <= tuned["accuracy"] <= 1.0
 
 
 def test_synthetic_dataset_pipeline(tmp_path):
@@ -79,6 +84,46 @@ def test_synthetic_dataset_pipeline(tmp_path):
     item = datasets["train"][0]
     assert item["image"].shape == (1, 32, 32, 32)
     assert item["label"] in (0.0, 1.0)
+    assert item["concepts"].shape == (4,)
+    assert item["attr_mask"].shape == (4,)
+
+
+def test_tg_hybrid_forward_and_loss():
+    cfg = {
+        "tg_hybrid": True,
+        "in_channels": 1,
+        "backbone": {"base_channels": 8, "out_channels": 32},
+        "swin": {
+            "embed_dim": 32,
+            "depths": [1, 1],
+            "num_heads": [2, 2],
+            "window_size": [2, 2, 2],
+            "dropout": 0.0,
+            "drop_path": 0.0,
+        },
+        "head": {"hidden_dim": 16, "dropout": 0.0},
+    }
+    model = build_model(cfg)
+    assert isinstance(model, TGHybridCNNSwin)
+    x = torch.randn(2, 1, 32, 32, 32)
+    p = model(x)
+    assert p.shape == (2,)
+    aux = model(x, return_aux=True)
+    assert isinstance(aux, dict)
+    assert aux["concepts"].shape == (2, 4)
+    assert aux["solid_logits"].shape == (2,)
+    loss_fn = TGHybridLoss(pos_weight=1.0)
+    batch = {
+        "label": torch.tensor([0.0, 1.0]),
+        "malignancy_weight": torch.tensor([1.0, 1.0]),
+        "concepts": torch.tensor([[4.0, 1.0, 4.0, 5.0], [2.0, 5.0, 2.0, 2.0]]),
+        "attr_mask": torch.ones(2, 4),
+        "subsolid": torch.tensor([0.0, 1.0]),
+        "uncertain": torch.tensor([0.0, 0.0]),
+    }
+    loss = loss_fn(aux, batch)
+    loss.backward()
+    assert torch.isfinite(loss)
 
 
 def test_4gb_model_config_forward():

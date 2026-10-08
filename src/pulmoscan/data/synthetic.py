@@ -80,6 +80,16 @@ def generate_synthetic_dataset(
             _write_nifti(vol_path, vol)
 
             malignancy = 5.0 if malignant else 1.0
+            subsolid = bool(rng.integers(0, 2)) if malignant else False
+            texture = 2.0 if subsolid else (5.0 if malignant else 4.0)
+            spiculation = 5.0 if malignant else 1.0
+            chars = {
+                "malignancy": malignancy,
+                "texture": texture,
+                "spiculation": spiculation,
+                "margin": 2.0 if malignant else 4.0,
+                "sphericity": 2.0 if malignant else 5.0,
+            }
             phys = {
                 "series_uid": series_uid,
                 "physical_nodules": [
@@ -91,11 +101,11 @@ def generate_synthetic_dataset(
                         "observations": [
                             {
                                 "session_index": 0,
-                                "characteristics": {"malignancy": malignancy},
+                                "characteristics": dict(chars),
                             },
                             {
                                 "session_index": 1,
-                                "characteristics": {"malignancy": malignancy},
+                                "characteristics": dict(chars),
                             },
                         ],
                     }

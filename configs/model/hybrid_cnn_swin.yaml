@@ -1,6 +1,7 @@
 name: hybrid_cnn_swin
 voi_size: [48, 48, 48]  # D, H, W at 1 mm isotropic
 in_channels: 1
+tg_hybrid: true  # texture-gated dual-expert heads on the shared CLS embedding
 
 backbone:
   name: resnet3d18
@@ -18,5 +19,9 @@ swin:
   drop_path: 0.1
 
 head:
+  hidden_dim: 128
+  dropout: 0.3
+
+tg_hybrid_head:
   hidden_dim: 128
   dropout: 0.3

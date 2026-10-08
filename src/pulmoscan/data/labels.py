@@ -11,17 +11,29 @@ from typing import Any, Literal
 CONFIDENCE_RANK = {"low": 0, "medium": 1, "high": 2}
 
 
+CONCEPT_KEYS = ("texture", "spiculation", "margin", "sphericity")
+# LIDC texture 1 = GGO / non-solid … 5 = solid. Texture <= this is subsolid.
+DEFAULT_SUBSOLID_TEXTURE_MAX = 3.0
+
+
 @dataclass
 class NoduleSample:
     series_uid: str
     patient_id: str
     split: str
     physical_id: str
-    label: int  # 0 benign, 1 malignant
+    label: int  # 0 benign, 1 malignant, -1 indeterminate (score ~3)
     malignancy_mean: float
     centroid_patient_mm: list[float]
     volume_path: str
     confidence: str
+    texture: float = 3.0
+    spiculation: float = 3.0
+    margin: float = 3.0
+    sphericity: float = 3.0
+    attr_mask: tuple[float, float, float, float] = (0.0, 0.0, 0.0, 0.0)
+    subsolid: int = 0
+    is_uncertain: bool = False
 
 
 class _Counter:
@@ -68,12 +80,52 @@ def _mean_or_none(scores: list[float]) -> float | None:
     return float(sum(scores) / len(scores))
 
 
-def _label_from_score(score: float, malignant_min: float, benign_max: float) -> int | None:
+def _label_from_score(
+    score: float,
+    malignant_min: float,
+    benign_max: float,
+    *,
+    include_uncertain: bool = False,
+) -> int | None:
     if score >= malignant_min:
         return 1
     if score <= benign_max:
         return 0
+    if include_uncertain:
+        return -1
     return None
+
+
+def _char_value(chars: Any, name: str) -> float | None:
+    if not isinstance(chars, dict):
+        return None
+    target = name.lower()
+    for key, val in chars.items():
+        if str(key).lower() != target or val is None or val == "":
+            continue
+        try:
+            return float(val)
+        except (TypeError, ValueError):
+            return None
+    return None
+
+
+def _mean_concepts(observations: list[Any]) -> tuple[dict[str, float], tuple[float, float, float, float]]:
+    buckets: dict[str, list[float]] = {k: [] for k in CONCEPT_KEYS}
+    for obs in observations:
+        if not isinstance(obs, dict):
+            continue
+        chars = obs.get("characteristics") or obs.get("nodule_characteristics") or {}
+        if not isinstance(chars, dict):
+            # characteristics sometimes sit on the observation itself
+            chars = obs
+        for key in CONCEPT_KEYS:
+            val = _char_value(chars, key)
+            if val is not None:
+                buckets[key].append(val)
+    means = {k: (sum(v) / len(v) if v else 3.0) for k, v in buckets.items()}
+    mask = tuple(1.0 if buckets[k] else 0.0 for k in CONCEPT_KEYS)
+    return means, mask  # type: ignore[return-value]
 
 
 def _patient_id_aliases(pid: str) -> set[str]:
@@ -384,6 +436,8 @@ def build_samples(
     benign_max: float = 2.0,
     min_confidence: Literal["high", "medium", "low"] = "low",
     use_physical_nodules: bool = True,
+    include_uncertain: bool = False,
+    subsolid_texture_max: float = DEFAULT_SUBSOLID_TEXTURE_MAX,
     return_stats: bool = False,
 ) -> list[NoduleSample] | tuple[list[NoduleSample], dict[str, int]]:
     root = Path(data_root)
@@ -497,10 +551,21 @@ def build_samples(
                 stats.inc("skip_no_malignancy")
                 continue
 
-            label = _label_from_score(score, malignant_min, benign_max)
+            label = _label_from_score(
+                score,
+                malignant_min,
+                benign_max,
+                include_uncertain=include_uncertain,
+            )
             if label is None:
                 stats.inc("skip_uncertain_label")
                 continue
+
+            concepts, attr_mask = _mean_concepts(observations)
+            if all(m == 0.0 for m in attr_mask):
+                concepts, attr_mask = _mean_concepts([nod])
+            texture = float(concepts["texture"])
+            subsolid = int(texture <= float(subsolid_texture_max)) if attr_mask[0] else 0
 
             samples.append(
                 NoduleSample(
@@ -513,6 +578,13 @@ def build_samples(
                     centroid_patient_mm=centroid,
                     volume_path=str(volume_path),
                     confidence=confidence,
+                    texture=texture,
+                    spiculation=float(concepts["spiculation"]),
+                    margin=float(concepts["margin"]),
+                    sphericity=float(concepts["sphericity"]),
+                    attr_mask=attr_mask,
+                    subsolid=subsolid,
+                    is_uncertain=label == -1,
                 )
             )
             stats.inc("kept")
@@ -530,10 +602,14 @@ def summarize_samples(samples: list[NoduleSample]) -> dict[str, Any]:
     summary: dict[str, Any] = {}
     for split, items in by_split.items():
         n_pos = sum(1 for x in items if x.label == 1)
+        n_neg = sum(1 for x in items if x.label == 0)
+        n_unc = sum(1 for x in items if x.label == -1)
         summary[split] = {
             "n": len(items),
             "malignant": n_pos,
-            "benign": len(items) - n_pos,
+            "benign": n_neg,
+            "uncertain": n_unc,
+            "subsolid": sum(1 for x in items if x.subsolid == 1),
             "patients": len({x.patient_id for x in items}),
         }
     return summary

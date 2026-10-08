@@ -9,12 +9,13 @@ import time
 from pathlib import Path
 from typing import Any
 
+import numpy as np
 import torch
 from torch.utils.data import DataLoader
 from tqdm import tqdm
 
 from pulmoscan.classification.losses import build_loss
-from pulmoscan.classification.model import build_model
+from pulmoscan.classification.model import TGHybridCNNSwin, build_model
 from pulmoscan.common.utils import ensure_dir, get_device, load_yaml, set_seed
 from pulmoscan.data.dataset import make_datasets
 from pulmoscan.evaluation.metrics import compute_binary_metrics
@@ -43,26 +44,135 @@ def _configure_runtime(train_cfg: dict[str, Any], device: torch.device) -> None:
 
 
 def _estimate_pos_weight_from_dataset(dataset) -> float:
-    """Compute pos_weight from labels only (no image I/O / DataLoader workers)."""
+    """Compute pos_weight from definite labels only (no image I/O / DataLoader workers)."""
     n_pos = sum(1 for s in dataset.samples if int(s.label) == 1)
-    n = len(dataset.samples)
-    n_neg = max(n - n_pos, 1)
-    return float(n_neg / max(n_pos, 1))
+    n_neg = sum(1 for s in dataset.samples if int(s.label) == 0)
+    return float(max(n_neg, 1) / max(n_pos, 1))
+
+
+def _majority_baseline(dataset) -> float:
+    n_pos = sum(1 for s in dataset.samples if int(s.label) == 1)
+    n_neg = sum(1 for s in dataset.samples if int(s.label) == 0)
+    n = max(n_pos + n_neg, 1)
+    return float(max(n_pos, n_neg) / n)
+
+
+class ModelEma:
+    def __init__(self, model: torch.nn.Module, decay: float = 0.998) -> None:
+        self.decay = decay
+        self.shadow = {k: v.detach().clone() for k, v in model.state_dict().items()}
+
+    @torch.no_grad()
+    def update(self, model: torch.nn.Module) -> None:
+        d = self.decay
+        for k, v in model.state_dict().items():
+            if not v.is_floating_point():
+                self.shadow[k] = v.detach().clone()
+                continue
+            self.shadow[k].mul_(d).add_(v.detach(), alpha=1.0 - d)
+
+    @torch.no_grad()
+    def copy_to(self, model: torch.nn.Module) -> None:
+        model.load_state_dict(self.shadow, strict=True)
+
+
+def _mixup_batch(batch: dict[str, Any], alpha: float) -> dict[str, Any]:
+    x = batch["image"]
+    if alpha <= 0.0 or x.size(0) < 2:
+        return batch
+    lam = float(np.random.beta(alpha, alpha))
+    idx = torch.randperm(x.size(0), device=x.device)
+    mixed = dict(batch)
+    mixed["image"] = lam * x + (1.0 - lam) * x[idx]
+    for key in ("label", "malignancy_weight", "concepts", "attr_mask", "subsolid", "uncertain"):
+        if key in batch and torch.is_tensor(batch[key]) and batch[key].is_floating_point():
+            mixed[key] = lam * batch[key] + (1.0 - lam) * batch[key][idx]
+    return mixed
+
+
+def _balanced_sampler(dataset):
+    from torch.utils.data import WeightedRandomSampler
+
+    weights: list[float] = []
+    n_pos = max(sum(1 for s in dataset.samples if int(s.label) == 1), 1)
+    n_neg = max(sum(1 for s in dataset.samples if int(s.label) == 0), 1)
+    n_unc = max(sum(1 for s in dataset.samples if int(s.label) == -1), 1)
+    for s in dataset.samples:
+        if int(s.label) == 1:
+            weights.append(1.0 / n_pos)
+        elif int(s.label) == 0:
+            weights.append(1.0 / n_neg)
+        else:
+            weights.append(1.0 / n_unc)
+    return WeightedRandomSampler(weights, num_samples=len(weights), replacement=True)
+
+
+def _move_batch(batch: dict[str, Any], device: torch.device) -> dict[str, Any]:
+    out = dict(batch)
+    for key, val in batch.items():
+        if torch.is_tensor(val):
+            out[key] = val.to(device, non_blocking=False)
+    return out
 
 
 @torch.no_grad()
-def evaluate(model: torch.nn.Module, loader: DataLoader, device: torch.device) -> dict[str, float]:
+def evaluate(
+    model: torch.nn.Module,
+    loader: DataLoader,
+    device: torch.device,
+    *,
+    tta: bool = False,
+) -> dict[str, float]:
     model.eval()
     probs: list[float] = []
     labels: list[float] = []
+    abstain_probs: list[float] = []
+    uncertain: list[float] = []
+    use_aux = isinstance(model, TGHybridCNNSwin)
     for batch in loader:
         x = batch["image"].to(device)
-        y = batch["label"].cpu().numpy().tolist()
+        y = batch["label"]
+        w = batch.get("malignancy_weight")
         with _autocast(device, enabled=device.type == "cuda"):
-            p = model(x).detach().float().cpu().numpy().tolist()
-        probs.extend(p if isinstance(p, list) else [p])
-        labels.extend(y if isinstance(y, list) else [y])
-    return compute_binary_metrics(labels, probs)
+            if use_aux:
+                aux = model(x, return_aux=True)
+                assert isinstance(aux, dict)
+                p = aux["prob"]
+                if tta:
+                    aux_f = model(torch.flip(x, dims=[-1]), return_aux=True)
+                    assert isinstance(aux_f, dict)
+                    p = 0.5 * (p + aux_f["prob"])
+                a = torch.sigmoid(aux["abstain_logits"])
+            else:
+                p = model(x)
+                if tta:
+                    p = 0.5 * (p + model(torch.flip(x, dims=[-1])))
+                a = None
+        p_list = p.detach().float().cpu().numpy().reshape(-1)
+        y_list = y.detach().float().cpu().numpy().reshape(-1)
+        if w is None:
+            keep = np.ones(len(y_list), dtype=bool)
+        else:
+            keep = w.detach().float().cpu().numpy().reshape(-1) > 0.5
+        probs.extend(p_list[keep].tolist())
+        labels.extend(y_list[keep].tolist())
+        if a is not None:
+            abstain_probs.extend(a.detach().float().cpu().numpy().reshape(-1).tolist())
+            u = batch.get("uncertain")
+            if u is not None:
+                uncertain.extend(u.detach().float().cpu().numpy().reshape(-1).tolist())
+
+    metrics = compute_binary_metrics(labels, probs)
+    thr = float(metrics.get("best_threshold", 0.5))
+    tuned = compute_binary_metrics(labels, probs, threshold=thr)
+    metrics["accuracy_tuned"] = tuned["accuracy"]
+    metrics["sensitivity_tuned"] = tuned["sensitivity"]
+    metrics["specificity_tuned"] = tuned["specificity"]
+    if abstain_probs and uncertain:
+        pred_abs = (np.asarray(abstain_probs) >= 0.5).astype(np.int32)
+        u_int = np.asarray(uncertain) >= 0.5
+        metrics["abstain_accuracy"] = float((pred_abs == u_int.astype(np.int32)).mean())
+    return metrics
 
 
 def train_one_epoch(
@@ -76,18 +186,28 @@ def train_one_epoch(
     max_grad_norm: float,
     *,
     empty_cache_each_step: bool = False,
+    mixup_alpha: float = 0.0,
+    ema: ModelEma | None = None,
 ) -> float:
     model.train()
     total = 0.0
     n = 0
     optimizer.zero_grad(set_to_none=True)
     use_amp = scaler is not None and device.type == "cuda"
+    use_aux = isinstance(model, TGHybridCNNSwin)
     for step, batch in enumerate(tqdm(loader, desc="train", leave=False)):
-        x = batch["image"].to(device, non_blocking=False)
-        y = batch["label"].to(device, non_blocking=False)
+        batch = _move_batch(batch, device)
+        batch = _mixup_batch(batch, mixup_alpha)
+        x = batch["image"]
+        y = batch["label"]
         with _autocast(device, enabled=use_amp):
-            logits = model(x, return_logits=True)
-            loss = loss_fn(logits, y) / grad_accum
+            if use_aux:
+                aux = model(x, return_aux=True)
+                assert isinstance(aux, dict)
+                loss = loss_fn(aux, batch) / grad_accum
+            else:
+                logits = model(x, return_logits=True)
+                loss = loss_fn(logits, y) / grad_accum
         if use_amp and scaler is not None:
             scaler.scale(loss).backward()
         else:
@@ -102,11 +222,13 @@ def train_one_epoch(
                 torch.nn.utils.clip_grad_norm_(model.parameters(), max_grad_norm)
                 optimizer.step()
             optimizer.zero_grad(set_to_none=True)
+            if ema is not None:
+                ema.update(model)
             if empty_cache_each_step and device.type == "cuda":
                 torch.cuda.empty_cache()
         total += float(loss.item()) * grad_accum * x.size(0)
         n += x.size(0)
-        del x, y, logits, loss
+        del x, y, loss
     return total / max(n, 1)
 
 
@@ -120,6 +242,7 @@ def run_training(
     batch_size: int | None = None,
     device_pref: str = "auto",
     output_dir: str | Path | None = None,
+    tg_hybrid: bool | None = None,
 ) -> dict[str, Any]:
     model_cfg = load_yaml(model_cfg_path)
     data_cfg = load_yaml(data_cfg_path)
@@ -144,6 +267,13 @@ def run_training(
     if "voi_size" in data_cfg:
         model_cfg["voi_size"] = data_cfg["voi_size"]
 
+    if tg_hybrid is not None:
+        model_cfg["tg_hybrid"] = bool(tg_hybrid)
+    use_tg = bool(model_cfg.get("tg_hybrid", False))
+    labeling = data_cfg.setdefault("labeling", {})
+    if use_tg:
+        labeling.setdefault("include_uncertain", True)
+
     print("Building datasets (metadata only; volumes load lazily per sample)...")
     datasets = make_datasets(data_root, data_cfg)
     if "train" not in datasets:
@@ -158,6 +288,7 @@ def run_training(
                 benign_max=float(labeling.get("benign_max", 2.0)),
                 min_confidence=labeling.get("min_confidence", "low"),
                 use_physical_nodules=bool(labeling.get("use_physical_nodules", True)),
+                include_uncertain=bool(labeling.get("include_uncertain", False)),
                 return_stats=True,
             )
             print("Label build stats:", json.dumps(stats, indent=2))
@@ -170,10 +301,17 @@ def run_training(
             "n": len(ds),
             "malignant": sum(1 for s in ds.samples if s.label == 1),
             "benign": sum(1 for s in ds.samples if s.label == 0),
+            "uncertain": sum(1 for s in ds.samples if s.label == -1),
+            "subsolid": sum(1 for s in ds.samples if s.subsolid == 1),
+            "majority_baseline_acc": _majority_baseline(ds),
         }
         for split, ds in datasets.items()
     }
     print("Dataset summary:", json.dumps(summary, indent=2))
+    print(
+        "Note: ~0.65 accuracy at threshold 0.5 often matches the majority-class "
+        "baseline; use val_auc and val_accuracy_tuned (Youden) as the real metrics."
+    )
 
     bs = int(train_cfg.get("batch_size", 1))
     # Hard-cap workers: lazy single-process load (no thread/process farm at start)
@@ -186,11 +324,17 @@ def run_training(
         "pin_memory": False,
         "persistent_workers": False,
     }
+    use_balanced = bool(train_cfg.get("balanced_sampler", True))
+    train_loader_kwargs = dict(loader_kwargs)
+    if use_balanced:
+        train_loader_kwargs["sampler"] = _balanced_sampler(datasets["train"])
+        train_loader_kwargs["shuffle"] = False
+    else:
+        train_loader_kwargs["shuffle"] = True
     train_loader = DataLoader(
         datasets["train"],
         batch_size=bs,
-        shuffle=True,
-        **loader_kwargs,
+        **train_loader_kwargs,
     )
     val_loader = None
     if "validation" in datasets:
@@ -204,14 +348,32 @@ def run_training(
     print("Building model...")
     model = build_model(model_cfg).to(device)
     n_params = sum(p.numel() for p in model.parameters())
-    print(f"Trainable params: {n_params/1e6:.2f}M")
+    print(f"Trainable params: {n_params/1e6:.2f}M  tg_hybrid={use_tg}")
     pos_weight = train_cfg.get("loss", {}).get("pos_weight")
     if pos_weight is None:
         pos_weight = _estimate_pos_weight_from_dataset(datasets["train"])
+    loss_cfg = train_cfg.get("loss", {})
+    loss_name = str(loss_cfg.get("name", "weighted_bce"))
+    if use_tg and loss_name in {"weighted_bce", "tg_hybrid", "tg-hybrid"}:
+        loss_name = "tg_hybrid"
+    elif not use_tg and loss_name in {"tg_hybrid", "tg-hybrid"}:
+        loss_name = "weighted_bce"
+    tg_kwargs = {
+        k: float(loss_cfg[k])
+        for k in (
+            "lambda_mal",
+            "lambda_concept",
+            "lambda_gate",
+            "lambda_expert",
+            "lambda_abstain",
+        )
+        if k in loss_cfg
+    }
     loss_fn = build_loss(
-        train_cfg.get("loss", {}).get("name", "weighted_bce"),
+        loss_name,
         pos_weight=float(pos_weight),
-        gamma=float(train_cfg.get("loss", {}).get("focal_gamma", 2.0)),
+        gamma=float(loss_cfg.get("focal_gamma", 2.0)),
+        **tg_kwargs,
     )
 
     optimizer = torch.optim.AdamW(
@@ -231,6 +393,10 @@ def run_training(
     scheduler = torch.optim.lr_scheduler.LambdaLR(optimizer, lr_lambda)
     use_cuda_amp = bool(train_cfg.get("amp", True)) and device.type == "cuda"
     scaler = torch.amp.GradScaler("cuda", enabled=use_cuda_amp)
+    mixup_alpha = float(train_cfg.get("mixup_alpha", 0.2 if bs >= 2 else 0.0))
+    ema = ModelEma(model, decay=float(train_cfg.get("ema_decay", 0.998))) if bool(
+        train_cfg.get("ema", True)
+    ) else None
 
     out_dir = ensure_dir(output_dir or train_cfg.get("checkpoint_dir", "./artifacts/checkpoints"))
     best_auc = -1.0
@@ -251,23 +417,38 @@ def run_training(
             grad_accum=int(train_cfg.get("grad_accum_steps", 1)),
             max_grad_norm=float(train_cfg.get("max_grad_norm", 1.0)),
             empty_cache_each_step=bool(train_cfg.get("empty_cache_each_step", False)),
+            mixup_alpha=mixup_alpha,
+            ema=ema,
         )
         scheduler.step()
         row: dict[str, Any] = {"epoch": epoch, "train_loss": train_loss, "seconds": time.time() - t0}
         if val_loader is not None:
-            metrics = evaluate(model, val_loader, device)
+            backup = None
+            if ema is not None:
+                backup = {k: v.detach().clone() for k, v in model.state_dict().items()}
+                ema.copy_to(model)
+            metrics = evaluate(
+                model,
+                val_loader,
+                device,
+                tta=bool(train_cfg.get("tta", False)),
+            )
+            if backup is not None:
+                model.load_state_dict(backup, strict=True)
             row.update({f"val_{k}": v for k, v in metrics.items()})
             auc = float(metrics.get("auc", 0.0))
             print(
                 f"epoch {epoch+1}/{n_epochs} loss={train_loss:.4f} "
-                f"val_auc={auc:.4f} val_acc={metrics.get('accuracy', 0):.3f}"
+                f"val_auc={auc:.4f} val_acc@0.5={metrics.get('accuracy', 0):.3f} "
+                f"val_acc_tuned={metrics.get('accuracy_tuned', 0):.3f}"
             )
             if auc > best_auc:
                 best_auc = auc
                 stale = 0
+                state = ema.shadow if ema is not None else model.state_dict()
                 torch.save(
                     {
-                        "model_state": model.state_dict(),
+                        "model_state": state,
                         "model_cfg": model_cfg,
                         "epoch": epoch,
                         "metrics": metrics,
@@ -319,6 +500,12 @@ def main() -> None:
     parser.add_argument("--batch-size", type=int, default=None)
     parser.add_argument("--device", default="auto")
     parser.add_argument("--output-dir", default="./artifacts/checkpoints_4gb")
+    parser.add_argument(
+        "--tg-hybrid",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+        help="Enable/disable TG-Hybrid heads (default: value in model yaml)",
+    )
     args = parser.parse_args()
 
     if args.preset == "default":
@@ -342,6 +529,7 @@ def main() -> None:
         batch_size=args.batch_size,
         device_pref=args.device,
         output_dir=args.output_dir,
+        tg_hybrid=args.tg_hybrid,
     )
     print(json.dumps({k: result[k] for k in ("best_path", "best_auc", "summary")}, indent=2))
 
