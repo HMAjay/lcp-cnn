@@ -23,8 +23,14 @@ from pulmoscan.evaluation.metrics import compute_binary_metrics
 
 def _autocast(device: torch.device, enabled: bool):
     if device.type == "cuda":
-        return torch.amp.autocast("cuda", enabled=enabled)
-    return torch.amp.autocast("cpu", enabled=False)
+        try:
+            return torch.amp.autocast("cuda", enabled=enabled)
+        except (TypeError, AttributeError):
+            return torch.cuda.amp.autocast(enabled=enabled)
+    try:
+        return torch.amp.autocast("cpu", enabled=False)
+    except (TypeError, AttributeError):
+        return torch.cuda.amp.autocast(enabled=False)
 
 
 def _configure_runtime(train_cfg: dict[str, Any], device: torch.device) -> None:
@@ -80,30 +86,44 @@ def _mixup_batch(batch: dict[str, Any], alpha: float) -> dict[str, Any]:
     x = batch["image"]
     if alpha <= 0.0 or x.size(0) < 2:
         return batch
+    # Mixing an uncertain nodule into a definite one corrupts the malignancy target.
+    unc = batch.get("uncertain")
+    if unc is not None and torch.is_tensor(unc) and float(unc.max()) > 0.5:
+        return batch
     lam = float(np.random.beta(alpha, alpha))
     idx = torch.randperm(x.size(0), device=x.device)
     mixed = dict(batch)
     mixed["image"] = lam * x + (1.0 - lam) * x[idx]
-    for key in ("label", "malignancy_weight", "concepts", "attr_mask", "subsolid", "uncertain"):
+    for key in (
+        "label",
+        "malignancy_target",
+        "malignancy_weight",
+        "eval_mask",
+        "concepts",
+        "attr_mask",
+        "subsolid",
+        "uncertain",
+    ):
         if key in batch and torch.is_tensor(batch[key]) and batch[key].is_floating_point():
             mixed[key] = lam * batch[key] + (1.0 - lam) * batch[key][idx]
     return mixed
 
 
-def _balanced_sampler(dataset):
+def _balanced_sampler(dataset, uncertain_weight: float = 0.25):
     from torch.utils.data import WeightedRandomSampler
 
     weights: list[float] = []
     n_pos = max(sum(1 for s in dataset.samples if int(s.label) == 1), 1)
     n_neg = max(sum(1 for s in dataset.samples if int(s.label) == 0), 1)
     n_unc = max(sum(1 for s in dataset.samples if int(s.label) == -1), 1)
+    unc_w = max(float(uncertain_weight), 0.0)
     for s in dataset.samples:
         if int(s.label) == 1:
             weights.append(1.0 / n_pos)
         elif int(s.label) == 0:
             weights.append(1.0 / n_neg)
         else:
-            weights.append(1.0 / n_unc)
+            weights.append(unc_w / n_unc)
     return WeightedRandomSampler(weights, num_samples=len(weights), replacement=True)
 
 
@@ -150,7 +170,13 @@ def evaluate(
                 a = None
         p_list = p.detach().float().cpu().numpy().reshape(-1)
         y_list = y.detach().float().cpu().numpy().reshape(-1)
-        if w is None:
+        ev = batch.get("eval_mask")
+        u = batch.get("uncertain")
+        if ev is not None:
+            keep = ev.detach().float().cpu().numpy().reshape(-1) > 0.5
+        elif u is not None:
+            keep = u.detach().float().cpu().numpy().reshape(-1) < 0.5
+        elif w is None:
             keep = np.ones(len(y_list), dtype=bool)
         else:
             keep = w.detach().float().cpu().numpy().reshape(-1) > 0.5
@@ -163,6 +189,7 @@ def evaluate(
                 uncertain.extend(u.detach().float().cpu().numpy().reshape(-1).tolist())
 
     metrics = compute_binary_metrics(labels, probs)
+    metrics["n_eval"] = float(len(labels))
     thr = float(metrics.get("best_threshold", 0.5))
     tuned = compute_binary_metrics(labels, probs, threshold=thr)
     metrics["accuracy_tuned"] = tuned["accuracy"]
@@ -327,7 +354,10 @@ def run_training(
     use_balanced = bool(train_cfg.get("balanced_sampler", True))
     train_loader_kwargs = dict(loader_kwargs)
     if use_balanced:
-        train_loader_kwargs["sampler"] = _balanced_sampler(datasets["train"])
+        train_loader_kwargs["sampler"] = _balanced_sampler(
+            datasets["train"],
+            uncertain_weight=float(train_cfg.get("uncertain_sample_weight", 0.25)),
+        )
         train_loader_kwargs["shuffle"] = False
     else:
         train_loader_kwargs["shuffle"] = True
@@ -392,7 +422,10 @@ def run_training(
 
     scheduler = torch.optim.lr_scheduler.LambdaLR(optimizer, lr_lambda)
     use_cuda_amp = bool(train_cfg.get("amp", True)) and device.type == "cuda"
-    scaler = torch.amp.GradScaler("cuda", enabled=use_cuda_amp)
+    try:
+        scaler = torch.amp.GradScaler("cuda", enabled=use_cuda_amp)
+    except (TypeError, AttributeError):
+        scaler = torch.cuda.amp.GradScaler(enabled=use_cuda_amp)
     mixup_alpha = float(train_cfg.get("mixup_alpha", 0.2 if bs >= 2 else 0.0))
     ema = ModelEma(model, decay=float(train_cfg.get("ema_decay", 0.998))) if bool(
         train_cfg.get("ema", True)
@@ -440,7 +473,8 @@ def run_training(
             print(
                 f"epoch {epoch+1}/{n_epochs} loss={train_loss:.4f} "
                 f"val_auc={auc:.4f} val_acc@0.5={metrics.get('accuracy', 0):.3f} "
-                f"val_acc_tuned={metrics.get('accuracy_tuned', 0):.3f}"
+                f"val_acc_tuned={metrics.get('accuracy_tuned', 0):.3f} "
+                f"n_eval={int(metrics.get('n_eval', 0))}"
             )
             if auc > best_auc:
                 best_auc = auc
@@ -502,9 +536,16 @@ def main() -> None:
     parser.add_argument("--output-dir", default="./artifacts/checkpoints_4gb")
     parser.add_argument(
         "--tg-hybrid",
-        action=argparse.BooleanOptionalAction,
+        dest="tg_hybrid",
+        action="store_true",
         default=None,
-        help="Enable/disable TG-Hybrid heads (default: value in model yaml)",
+        help="Enable TG-Hybrid heads (default: value in model yaml)",
+    )
+    parser.add_argument(
+        "--no-tg-hybrid",
+        dest="tg_hybrid",
+        action="store_false",
+        help="Disable TG-Hybrid heads",
     )
     args = parser.parse_args()
 

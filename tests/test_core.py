@@ -84,6 +84,8 @@ def test_synthetic_dataset_pipeline(tmp_path):
     item = datasets["train"][0]
     assert item["image"].shape == (1, 32, 32, 32)
     assert item["label"] in (0.0, 1.0)
+    assert 0.0 <= float(item["malignancy_target"]) <= 1.0
+    assert float(item["eval_mask"]) in (0.0, 1.0)
     assert item["concepts"].shape == (4,)
     assert item["attr_mask"].shape == (4,)
 
@@ -124,6 +126,20 @@ def test_tg_hybrid_forward_and_loss():
     loss = loss_fn(aux, batch)
     loss.backward()
     assert torch.isfinite(loss)
+
+
+def test_mixup_skips_uncertain_batches():
+    from pulmoscan.classification.train import _mixup_batch
+
+    x = torch.randn(2, 1, 4, 4, 4)
+    batch = {
+        "image": x,
+        "label": torch.tensor([0.0, 1.0]),
+        "uncertain": torch.tensor([1.0, 0.0]),
+        "malignancy_target": torch.tensor([0.5, 1.0]),
+    }
+    out = _mixup_batch(batch, 0.2)
+    assert torch.equal(out["image"], x)
 
 
 def test_4gb_model_config_forward():

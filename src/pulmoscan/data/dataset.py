@@ -34,6 +34,7 @@ class NoduleVOIDataset(Dataset):
         augment_cfg: dict[str, Any] | None = None,
         volume_cache: bool = False,
         voi_cache_size: int = 0,
+        soft_malignancy: bool = True,
     ) -> None:
         self.samples = samples
         self.voi_size = tuple(int(x) for x in voi_size)
@@ -43,6 +44,7 @@ class NoduleVOIDataset(Dataset):
         self.augment_cfg = augment_cfg or {}
         self.volume_cache = volume_cache
         self.voi_cache_size = int(voi_cache_size)
+        self.soft_malignancy = bool(soft_malignancy)
         self._volume_cache: dict[str, tuple[np.ndarray, np.ndarray]] = {}
         self._voi_cache: OrderedDict[str, np.ndarray] = OrderedDict()
 
@@ -56,11 +58,18 @@ class NoduleVOIDataset(Dataset):
         if self.volume_cache and path in self._volume_cache:
             return self._volume_cache[path]
         # mmap=True: avoid eager full-volume RAM copy at open
-        vol, affine = load_nifti(path, mmap=True)
-        if self.volume_cache:
-            # Caching full volumes is expensive; only when explicitly enabled
-            self._volume_cache[path] = (vol, affine)
-        return vol, affine
+            vol, affine = load_nifti(path, mmap=True)
+            if self.volume_cache:
+                # Caching full volumes is expensive; only when explicitly enabled
+                self._volume_cache[path] = (vol, affine)
+            return vol, affine
+
+    def _jitter_center(self, center: np.ndarray) -> np.ndarray:
+        jitter = float(self.augment_cfg.get("centroid_jitter_mm", 0.0))
+        if not self.augment or jitter <= 0:
+            return center
+        noise = np.random.uniform(-jitter, jitter, size=3).astype(np.float32)
+        return center + noise
 
     def _augment(self, voi: np.ndarray) -> np.ndarray:
         cfg = self.augment_cfg
@@ -91,6 +100,7 @@ class NoduleVOIDataset(Dataset):
         else:
             vol, affine = self._get_volume(sample.volume_path)
             center = patient_to_voxel_zyx(sample.centroid_patient_mm, affine)
+            center = self._jitter_center(center)
             # Fill OOB with HU window floor so normalization maps padding to ~0
             voi = crop_voi(vol, center, self.voi_size, fill=float(self.hu_window[0]))
             voi = window_normalize(voi, self.hu_window, self.normalize)
@@ -105,6 +115,11 @@ class NoduleVOIDataset(Dataset):
 
         tensor = torch.from_numpy(np.ascontiguousarray(voi)).unsqueeze(0).float()
         mal_label = 0.0 if sample.label < 0 else float(sample.label)
+        # LIDC 1–5 → [0, 1]. |score-3|/2 down-weights indeterminate nodules.
+        soft = float(np.clip((float(sample.malignancy_mean) - 1.0) / 4.0, 0.0, 1.0))
+        agree = float(min(abs(float(sample.malignancy_mean) - 3.0) / 2.0, 1.0))
+        mal_target = soft if self.soft_malignancy else mal_label
+        mal_weight = agree if self.soft_malignancy else (0.0 if sample.label < 0 else 1.0)
         concepts = torch.tensor(
             [sample.texture, sample.spiculation, sample.margin, sample.sphericity],
             dtype=torch.float32,
@@ -112,7 +127,9 @@ class NoduleVOIDataset(Dataset):
         return {
             "image": tensor,
             "label": torch.tensor(mal_label, dtype=torch.float32),
-            "malignancy_weight": torch.tensor(0.0 if sample.label < 0 else 1.0, dtype=torch.float32),
+            "malignancy_target": torch.tensor(mal_target, dtype=torch.float32),
+            "malignancy_weight": torch.tensor(mal_weight, dtype=torch.float32),
+            "eval_mask": torch.tensor(0.0 if sample.label < 0 else 1.0, dtype=torch.float32),
             "concepts": concepts,
             "attr_mask": torch.tensor(sample.attr_mask, dtype=torch.float32),
             "subsolid": torch.tensor(float(sample.subsolid), dtype=torch.float32),
@@ -159,5 +176,6 @@ def make_datasets(
             augment_cfg=aug.get("train", {}) if augment else {},
             volume_cache=volume_cache,
             voi_cache_size=0 if augment else voi_cache_size,
+            soft_malignancy=bool(labeling.get("soft_malignancy", True)),
         )
     return out

@@ -74,7 +74,7 @@ class TGHybridLoss(nn.Module):
         return (per * weight).sum() / denom
 
     def forward(self, aux: dict[str, torch.Tensor], batch: dict[str, torch.Tensor]) -> torch.Tensor:
-        y = batch["label"]
+        y = batch.get("malignancy_target", batch["label"])
         mal_w = batch.get("malignancy_weight")
         if mal_w is None:
             mal_w = torch.ones_like(y)
