@@ -26,7 +26,7 @@ Stage-1 detection (3D U-Net) is deferred; this slice scores VOIs from existing p
 
 ## Data
 
-Point `PULMOSCAN_DATA_ROOT` at your processed tree (~3 GB), matching `PREPROCESSING_README.md`:
+Point `PULMOSCAN_DATA_ROOT` at your processed tree, matching `PREPROCESSING_README.md`:
 
 ```text
 data/processed/
@@ -35,6 +35,21 @@ data/processed/
   manifests/dataset_manifest.json
   manifests/patient_splits.json
 ```
+
+### Preprocess from TCIA (CPU, no GPU)
+
+After downloading a LIDC-IDRI batch with TCIA Data Retriever + the annotations ZIP:
+
+```bash
+pip install -e ".[preprocess]"
+python -m pulmoscan.data.preprocess_lidc \
+  --raw-root /path/to/TCIA_LIDC-IDRI_... \
+  --xml-root /path/to/lidc_annotations \
+  --out /path/to/processed \
+  --max-series 100
+```
+
+Full steps: [`docs/PREPROCESS_GUIDE.md`](docs/PREPROCESS_GUIDE.md).
 
 ## Local setup (CPU smoke + demo)
 

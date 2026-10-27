@@ -28,6 +28,7 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = ["pytest>=7.4", "ruff>=0.4"]
+preprocess = ["pydicom>=2.4", "SimpleITK>=2.3"]
 
 [project.scripts]
 pulmoscan-train = "pulmoscan.classification.train:main"
@@ -35,6 +36,7 @@ pulmoscan-eval = "pulmoscan.evaluation.evaluate:main"
 pulmoscan-demo = "pulmoscan.inference.demo_app:main"
 pulmoscan-predict = "pulmoscan.inference.predict_real:main"
 pulmoscan-synth = "pulmoscan.data.synthetic:main"
+pulmoscan-preprocess = "pulmoscan.data.preprocess_lidc:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]

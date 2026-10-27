@@ -2,11 +2,14 @@
 """Local (non-Colab) end-to-end runner for PulmoScan / LCP-CNN.
 
 Examples:
+  # preprocess TCIA DICOM+XML → processed/ (CPU)
+  python scripts/run_local.py preprocess --raw-root /path/to/TCIA_... --xml-root /path/to/xml --out /path/to/processed
+
   # verify labels
   python scripts/run_local.py verify --data-root /path/to/processed
 
   # train
-  python scripts/run_local.py train --data-root /path/to/processed --output-dir ./artifacts/checkpoints_v2
+  python scripts/run_local.py train --data-root /path/to/processed --output-dir ./artifacts/checkpoints_4gb
 
   # evaluate + optional download-style copy
   python scripts/run_local.py eval --data-root /path/to/processed --checkpoint ./artifacts/checkpoints_v2/best.pt
@@ -58,6 +61,21 @@ def cmd_build_manifests(args: argparse.Namespace) -> None:
 
     info = build_manifests(args.data_root, seed=args.seed)
     print(json.dumps(info, indent=2))
+
+
+def cmd_preprocess(args: argparse.Namespace) -> None:
+    _ensure_src_path()
+    from pulmoscan.data.preprocess_lidc import run_preprocess
+
+    summary = run_preprocess(
+        args.raw_root,
+        args.out,
+        xml_root=args.xml_root,
+        max_series=args.max_series,
+        seed=args.seed,
+        skip_existing=not args.no_skip_existing,
+    )
+    print(json.dumps(summary, indent=2))
 
 
 def cmd_train(args: argparse.Namespace) -> None:
@@ -197,6 +215,15 @@ def main() -> None:
     p.add_argument("--data-root", required=True)
     p.add_argument("--seed", type=int, default=42)
     p.set_defaults(func=cmd_build_manifests)
+
+    p = sub.add_parser("preprocess", help="TCIA DICOM+XML → processed/ (CPU)")
+    p.add_argument("--raw-root", required=True, help="TCIA download folder")
+    p.add_argument("--xml-root", default=None, help="LIDC XML annotations folder")
+    p.add_argument("--out", default="./data/processed")
+    p.add_argument("--max-series", type=int, default=None)
+    p.add_argument("--seed", type=int, default=42)
+    p.add_argument("--no-skip-existing", action="store_true")
+    p.set_defaults(func=cmd_preprocess)
 
     p = sub.add_parser("train", help="Train hybrid CNN+Swin")
     p.add_argument("--data-root", required=True)
