@@ -21,9 +21,26 @@ from pulmoscan.evaluation.metrics import compute_binary_metrics
 
 
 def _autocast(device: torch.device, enabled: bool):
-    if device.type == "cuda":
-        return torch.amp.autocast("cuda", enabled=enabled)
-    return torch.amp.autocast("cpu", enabled=False)
+    """AMP autocast compatible with torch 2.1 (cuda.amp) and 2.2+ (torch.amp)."""
+    if device.type != "cuda" or not enabled:
+        # torch.cuda.amp.autocast(enabled=False) is a safe no-op context
+        return torch.cuda.amp.autocast(enabled=False)
+    if hasattr(torch.amp, "autocast"):
+        try:
+            return torch.amp.autocast("cuda", enabled=True)
+        except (TypeError, AttributeError):
+            pass
+    return torch.cuda.amp.autocast(enabled=True)
+
+
+def _make_grad_scaler(enabled: bool):
+    """GradScaler compatible with torch 2.1 and 2.2+."""
+    if hasattr(torch.amp, "GradScaler"):
+        try:
+            return torch.amp.GradScaler("cuda", enabled=enabled)
+        except (TypeError, AttributeError):
+            pass
+    return torch.cuda.amp.GradScaler(enabled=enabled)
 
 
 def _configure_runtime(train_cfg: dict[str, Any], device: torch.device) -> None:
@@ -71,7 +88,7 @@ def train_one_epoch(
     optimizer: torch.optim.Optimizer,
     loss_fn: torch.nn.Module,
     device: torch.device,
-    scaler: torch.cuda.amp.GradScaler | torch.amp.GradScaler | None,
+    scaler: Any,
     grad_accum: int,
     max_grad_norm: float,
     *,
@@ -230,7 +247,7 @@ def run_training(
 
     scheduler = torch.optim.lr_scheduler.LambdaLR(optimizer, lr_lambda)
     use_cuda_amp = bool(train_cfg.get("amp", True)) and device.type == "cuda"
-    scaler = torch.amp.GradScaler("cuda", enabled=use_cuda_amp)
+    scaler = _make_grad_scaler(use_cuda_amp)
 
     out_dir = ensure_dir(output_dir or train_cfg.get("checkpoint_dir", "./artifacts/checkpoints"))
     best_auc = -1.0
