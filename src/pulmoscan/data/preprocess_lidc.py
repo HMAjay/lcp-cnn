@@ -239,10 +239,25 @@ def select_series_for_training(
     return selected, stats
 
 
-def load_series_hu_and_affine(dicom_dir: Path) -> tuple[np.ndarray, np.ndarray, dict[str, Any]]:
+def _sitk_to_nibabel_affine(image) -> np.ndarray:
+    """Build nibabel-style affine: index (i,j,k)=(x,y,z) → patient mm."""
+    spacing = np.array(image.GetSpacing(), dtype=np.float64)
+    origin = np.array(image.GetOrigin(), dtype=np.float64)
+    direction = np.array(image.GetDirection(), dtype=np.float64).reshape(3, 3)
+    affine = np.eye(4, dtype=np.float64)
+    affine[:3, :3] = direction @ np.diag(spacing)
+    affine[:3, 3] = origin
+    return affine
+
+
+def load_series_hu_and_affine(
+    dicom_dir: Path,
+) -> tuple[np.ndarray, np.ndarray, dict[str, Any], Any]:
     """Load a DICOM CT series as (Z,Y,X) float32 HU + 4x4 patient affine.
 
+    Returns (volume_zyx, affine_1mm, meta, original_sitk_image).
     Affine maps voxel (x,y,z) index → patient mm (nibabel convention).
+    The original SimpleITK image is needed to map LIDC DICOM pixel coords → patient mm.
     """
     try:
         import SimpleITK as sitk
@@ -279,13 +294,9 @@ def load_series_hu_and_affine(dicom_dir: Path) -> tuple[np.ndarray, np.ndarray, 
     image_1mm = resample.Execute(image)
 
     arr = sitk.GetArrayFromImage(image_1mm).astype(np.float32)  # (Z,Y,X)
-    # Build nibabel-style affine: index (i,j,k)=(x,y,z) → patient
+    affine = _sitk_to_nibabel_affine(image_1mm)
     spacing = np.array(image_1mm.GetSpacing(), dtype=np.float64)
     origin = np.array(image_1mm.GetOrigin(), dtype=np.float64)
-    direction = np.array(image_1mm.GetDirection(), dtype=np.float64).reshape(3, 3)
-    affine = np.eye(4, dtype=np.float64)
-    affine[:3, :3] = direction @ np.diag(spacing)
-    affine[:3, 3] = origin
 
     meta = {
         "original_spacing_xyz": original_spacing.tolist(),
@@ -294,7 +305,7 @@ def load_series_hu_and_affine(dicom_dir: Path) -> tuple[np.ndarray, np.ndarray, 
         "size_zyx": list(arr.shape),
         "n_dicom_files": len(names),
     }
-    return arr, affine, meta
+    return arr, affine, meta, image
 
 
 def save_nifti(path: Path, volume_zyx: np.ndarray, affine: np.ndarray) -> None:
@@ -331,8 +342,28 @@ def index_xml_files(xml_root: str | Path | None) -> dict[str, Path]:
     return index
 
 
-def _roi_centroid_patient_mm(roi: ET.Element, affine: np.ndarray) -> list[float] | None:
-    """Centroid of one ROI contour in patient mm using NIfTI affine."""
+def _slice_z_positions(sitk_image) -> np.ndarray:
+    """Patient-Z for each slice index k in a SimpleITK volume."""
+    size = sitk_image.GetSize()  # (x, y, z)
+    zs = []
+    for k in range(int(size[2])):
+        # Index (0,0,k) → physical point; use Z component
+        p = sitk_image.TransformContinuousIndexToPhysicalPoint((0.0, 0.0, float(k)))
+        zs.append(float(p[2]))
+    return np.asarray(zs, dtype=np.float64)
+
+
+def _roi_centroid_patient_mm(
+    roi: ET.Element,
+    sitk_image,
+    z_vals: np.ndarray | None = None,
+) -> list[float] | None:
+    """Centroid of one LIDC ROI in patient mm.
+
+    LIDC ``xCoord``/``yCoord`` are **original DICOM pixel indices**, and
+    ``imageZposition`` is patient-space Z. These must be mapped with the
+    *original* (pre-1mm-resample) SimpleITK geometry — not the resampled affine.
+    """
     xs: list[float] = []
     ys: list[float] = []
     z_pos = None
@@ -351,32 +382,22 @@ def _roi_centroid_patient_mm(roi: ET.Element, affine: np.ndarray) -> list[float]
                 ys.append(float(_text(y_el)))
             except ValueError:
                 continue
-    if not xs or not ys:
+    if not xs or not ys or z_pos is None:
         return None
-    # Pixel indices (i,j) = (x,y); z from imageZposition is already patient Z
-    # Prefer mapping x,y through affine with approximate z index from physical Z.
-    # affine maps (i,j,k) → (X,Y,Z). For LIDC, imageZposition is patient Z.
+
     cx = float(np.mean(xs))
     cy = float(np.mean(ys))
-    if z_pos is None:
-        return None
-    # Invert affine to get k from patient Z while fixing i,j — approximate:
-    # patient ≈ origin + A @ [i,j,k]; use direction to solve k from Z.
-    A = affine[:3, :3]
-    origin = affine[:3, 3]
-    # Approximate: assume nearly axial; k ≈ (z_pos - origin_z) / A[2,2]
-    if abs(A[2, 2]) > 1e-6:
-        k = (z_pos - origin[2]) / A[2, 2]
-    else:
-        k = 0.0
-    ijk = np.array([cx, cy, k, 1.0], dtype=np.float64)
-    xyz = affine @ ijk
-    return [float(xyz[0]), float(xyz[1]), float(xyz[2])]
+    if z_vals is None:
+        z_vals = _slice_z_positions(sitk_image)
+    k = int(np.argmin(np.abs(z_vals - z_pos)))
+    # SimpleITK index order is (x, y, z)
+    phys = sitk_image.TransformContinuousIndexToPhysicalPoint((cx, cy, float(k)))
+    return [float(phys[0]), float(phys[1]), float(phys[2])]
 
 
 def parse_lidc_xml(
     xml_path: Path,
-    affine: np.ndarray,
+    sitk_image,
 ) -> tuple[dict[str, Any], list[ReaderNodule]]:
     """Parse one LIDC XML into JSON-serializable doc + reader nodules (≥3mm with malignancy)."""
     tree = ET.parse(str(xml_path))
@@ -401,6 +422,7 @@ def parse_lidc_xml(
 
     sessions_out: list[dict[str, Any]] = []
     nodules: list[ReaderNodule] = []
+    z_vals = _slice_z_positions(sitk_image)
 
     session_els = [c for c in root if _local(c.tag) == "readingSession"]
     for si, sess in enumerate(session_els):
@@ -429,7 +451,7 @@ def parse_lidc_xml(
             rois = _findall(nod, "roi")
             cents = []
             for roi in rois:
-                c = _roi_centroid_patient_mm(roi, affine)
+                c = _roi_centroid_patient_mm(roi, sitk_image, z_vals=z_vals)
                 if c is not None:
                     cents.append(c)
             if not cents:
@@ -555,7 +577,7 @@ def process_series(
     if skip_existing and vol_path.exists() and phys_path.exists():
         return {"series_uid": series.series_uid, "status": "skipped_existing"}
 
-    volume, affine, meta = load_series_hu_and_affine(series.dicom_dir)
+    volume, affine, meta, sitk_original = load_series_hu_and_affine(series.dicom_dir)
     save_nifti(vol_path, volume, affine)
 
     xml_path = xml_index.get(series.series_uid)
@@ -583,7 +605,8 @@ def process_series(
         "note": "no_xml_found",
     }
     if xml_path is not None and xml_path.exists():
-        lidc_doc, reader_nodules = parse_lidc_xml(xml_path, affine)
+        # Critical: map LIDC pixel coords with ORIGINAL DICOM geometry (not 1mm affine)
+        lidc_doc, reader_nodules = parse_lidc_xml(xml_path, sitk_original)
         lidc_doc["series_instance_uid"] = series.series_uid
 
     lidc_path.parent.mkdir(parents=True, exist_ok=True)

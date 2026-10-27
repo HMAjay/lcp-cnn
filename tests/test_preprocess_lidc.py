@@ -31,6 +31,13 @@ def test_cluster_physical_nodules_merges_nearby_readers():
 
 
 def test_parse_lidc_xml_fixture(tmp_path):
+    import SimpleITK as sitk
+
+    # Identity geometry: index (x,y,z) == patient mm
+    img = sitk.Image(64, 64, 64, sitk.sitkFloat32)
+    img.SetSpacing((1.0, 1.0, 1.0))
+    img.SetOrigin((0.0, 0.0, 0.0))
+
     xml = """<?xml version="1.0"?>
     <LidcReadMessage>
       <ResponseHeader>
@@ -52,7 +59,7 @@ def test_parse_lidc_xml_fixture(tmp_path):
           <noduleID>Nodule 002</noduleID>
           <characteristics><malignancy>4</malignancy></characteristics>
           <roi>
-            <imageZposition>30.5</imageZposition>
+            <imageZposition>30.0</imageZposition>
             <edgeMap><xCoord>11</xCoord><yCoord>21</yCoord></edgeMap>
           </roi>
         </unblindedReadNodule>
@@ -61,12 +68,15 @@ def test_parse_lidc_xml_fixture(tmp_path):
     """
     path = tmp_path / "case.xml"
     path.write_text(xml, encoding="utf-8")
-    affine = np.eye(4, dtype=np.float64)
-    doc, nodules = parse_lidc_xml(path, affine)
+    doc, nodules = parse_lidc_xml(path, img)
     assert doc["series_instance_uid"] == "1.2.3.test"
     assert len(nodules) == 2
     assert nodules[0].malignancy == 5.0
     assert len(nodules[0].centroid_patient_mm) == 3
+    # mean of (10,20) and (12,22) at z=30 → ~(11, 21, 30)
+    assert abs(nodules[0].centroid_patient_mm[0] - 11.0) < 1e-3
+    assert abs(nodules[0].centroid_patient_mm[1] - 21.0) < 1e-3
+    assert abs(nodules[0].centroid_patient_mm[2] - 30.0) < 1e-3
 
 
 def test_select_series_prefers_annotated_chest_over_angio(tmp_path):
