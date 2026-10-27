@@ -1,6 +1,9 @@
 # Preprocess LIDC-IDRI (TCIA) → PulmoScan `processed/`
 
-**CPU only — no GPU pod needed.** GPU is only for training afterward.
+**If your data is under `C:\lidc`**, follow the full Windows + GPU-pod checklist:  
+[`docs/WINDOWS_LIDC_STEPS.md`](WINDOWS_LIDC_STEPS.md) (uses `processed_v2` so old `processed/` is kept).
+
+**CPU only — no GPU pod needed for preprocessing.** GPU is only for training afterward.
 
 ## Important: chest vs angio is still lung CT
 
