@@ -4,10 +4,14 @@ from __future__ import annotations
 
 import numpy as np
 
+from pathlib import Path
+
 from pulmoscan.data.preprocess_lidc import (
     ReaderNodule,
+    SeriesInfo,
     cluster_physical_nodules,
     parse_lidc_xml,
+    select_series_for_training,
 )
 
 
@@ -63,3 +67,40 @@ def test_parse_lidc_xml_fixture(tmp_path):
     assert len(nodules) == 2
     assert nodules[0].malignancy == 5.0
     assert len(nodules[0].centroid_patient_mm) == 3
+
+
+def test_select_series_prefers_annotated_chest_over_angio(tmp_path):
+    xml = tmp_path / "a.xml"
+    xml.write_text("<x/>", encoding="utf-8")
+    chest = SeriesInfo(
+        "uid-chest",
+        "LIDC-IDRI-0001",
+        tmp_path / "chest",
+        n_files=120,
+        series_description="CHEST",
+        path_hint=str(tmp_path / "LIDC-IDRI-0001" / "chest"),
+    )
+    angio = SeriesInfo(
+        "uid-angio",
+        "LIDC-IDRI-0001",
+        tmp_path / "angio",
+        n_files=200,
+        series_description="CTA ANGIO",
+        path_hint=str(tmp_path / "LIDC-IDRI-0001" / "angio"),
+    )
+    other = SeriesInfo(
+        "uid-other",
+        "LIDC-IDRI-0002",
+        tmp_path / "other",
+        n_files=80,
+        path_hint=str(tmp_path / "LIDC-IDRI-0002" / "chest"),
+    )
+    selected, stats = select_series_for_training(
+        [chest, angio, other],
+        xml_index={"uid-chest": xml},
+        annotated_only=True,
+        skip_angio=True,
+        one_per_patient=True,
+    )
+    assert [s.series_uid for s in selected] == ["uid-chest"]
+    assert stats["dropped_no_xml"] >= 1

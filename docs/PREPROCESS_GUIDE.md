@@ -2,61 +2,84 @@
 
 **CPU only — no GPU pod needed.** GPU is only for training afterward.
 
-## What preprocessing does
+## Important: chest vs angio is still lung CT
+
+LIDC-IDRI is a **lung / thoracic CT** collection. Folders named `chest` and `angio` under `LIDC-IDRI-XXXX` are usually **different CT series of the same patient** (standard chest CT vs CT angiography), not liver/brain/other organs.
+
+For malignancy training we only need the series that **LIDC XML annotated** (nodule outlines + malignancy scores). This preprocessor:
+
+1. Keeps **CT only** (drops DX/CR X-rays)
+2. Keeps series with a matching **LIDC XML** (`--annotated-only` default)
+3. Prefers **chest** over **angio** when both exist
+4. Keeps **one series per patient** by default
+
+You do **not** need a separate lung-segmentation step for Stage-2 malignancy scoring: we crop nodule VOIs around annotated centroids.
+
+## When to pause TCIA
+
+Pause around **~100–150 Completed** series (you already had ~131 / 10% — good first batch). Do **not** wait for 1,308 on a nearly full C: drive.
+
+## Folder layout we expect
 
 ```text
-TCIA DICOM (.dcm) + LIDC XML
-        │
-        ▼
-  HU conversion + 1×1×1 mm resample → volumes/*.nii.gz
-  Parse XML malignancy / ROIs     → metadata/lidc/*.json
-  Cluster reader marks            → metadata/physical_nodules/*.json
-  Patient-level split             → manifests/*.json
+D:\lidc\raw\
+  LIDC-IDRI-0001\
+    ...\chest\*.dcm
+    ...\angio\*.dcm      # ignored unless it's the only annotated series
+  LIDC-IDRI-0002\
+  ...
+
+D:\lidc\annotations\     # unzipped Radiologist Annotations (~8.6 MB)
+  *.xml
+
+D:\lidc\processed\       # output (fresh rebuild OK)
 ```
 
-Training then crops nodule VOIs lazily from those volumes (see `--preset 4gb`).
+`--raw-root` can be `D:\lidc\raw` **or** the TCIA folder  
+`C:\Users\Lenovo\Downloads\TCIA_LIDC-IDRI_20200921` if that is where `LIDC-IDRI-XXXX` lives.
 
-## Before you start
-
-1. Pause TCIA download around **~80–100 Completed** series (not all 1,308).
-2. Download **Radiologist Annotations** (~8.6 MB) from TCIA and unzip them, e.g. `D:\lidc\annotations\`.
-3. Know your raw folder, e.g.  
-   `C:\Users\Lenovo\Downloads\TCIA_LIDC-IDRI_20200921`
-
-## Install (Windows PowerShell / WSL)
+## Install
 
 ```powershell
 cd path\to\lcp-cnn
+git pull
 python -m venv .venv
 .\.venv\Scripts\Activate.ps1
 pip install -e ".[preprocess,dev]"
 ```
 
-## Run preprocess
+## Fresh preprocess (recommended)
+
+Wipes `processed/` and rebuilds cleanly:
 
 ```powershell
 python -m pulmoscan.data.preprocess_lidc `
-  --raw-root "C:\Users\Lenovo\Downloads\TCIA_LIDC-IDRI_20200921" `
+  --raw-root "D:\lidc\raw" `
   --xml-root "D:\lidc\annotations" `
   --out "D:\lidc\processed" `
-  --max-series 100
+  --fresh `
+  --max-series 5
 ```
 
-- First time / test: keep `--max-series 5` to verify paths.
-- Full batch: omit `--max-series` (processes everything under `--raw-root`).
-- Already-done series are skipped unless you pass `--no-skip-existing`.
-
-## Verify labels
+If that works (no errors, volumes appear), rerun **without** `--max-series`:
 
 ```powershell
-python scripts/run_local.py verify --data-root "D:\lidc\processed"
+python -m pulmoscan.data.preprocess_lidc `
+  --raw-root "D:\lidc\raw" `
+  --xml-root "D:\lidc\annotations" `
+  --out "D:\lidc\processed" `
+  --fresh
 ```
 
-You want many nodules with malignancy ≤2 (benign) or ≥4 (malignant). Score 3 is excluded by design.
+## Verify
 
-## Then train (GPU / Colab)
+```powershell
+python scripts\run_local.py verify --data-root "D:\lidc\processed"
+```
 
-Upload or mount `D:\lidc\processed` (or copy to Google Drive), then:
+Expect many labeled nodules (malignancy ≤2 benign / ≥4 malignant). Score 3 is excluded on purpose.
+
+## Train (GPU / Colab)
 
 ```bash
 python -m pulmoscan.classification.train \
@@ -66,6 +89,12 @@ python -m pulmoscan.classification.train \
   --output-dir ./artifacts/checkpoints_4gb
 ```
 
-## After a good preprocess
+## Scale up for better AUC
 
-You may **delete** that batch’s raw DICOM to free disk, keep `processed/` + annotations XML, then download the next 50–100 patients and run preprocess again into the **same** `--out` folder.
+| Patients in `processed/` | Purpose |
+|--------------------------|---------|
+| ~100 | First serious train (replace 7-patient 0.76) |
+| 200–400 | More stable AUC |
+| more batches | Pause TCIA → preprocess → delete that batch’s DICOM → download next |
+
+After a successful preprocess you can delete raw DICOM for those patients to free disk; keep `processed/` + XML.

@@ -74,6 +74,10 @@ def cmd_preprocess(args: argparse.Namespace) -> None:
         max_series=args.max_series,
         seed=args.seed,
         skip_existing=not args.no_skip_existing,
+        fresh=args.fresh,
+        annotated_only=not args.keep_unannotated,
+        skip_angio=not args.keep_angio,
+        one_per_patient=not args.keep_all_series,
     )
     print(json.dumps(summary, indent=2))
 
@@ -217,12 +221,16 @@ def main() -> None:
     p.set_defaults(func=cmd_build_manifests)
 
     p = sub.add_parser("preprocess", help="TCIA DICOM+XML → processed/ (CPU)")
-    p.add_argument("--raw-root", required=True, help="TCIA download folder")
+    p.add_argument("--raw-root", required=True, help="Folder with LIDC-IDRI-XXXX dirs")
     p.add_argument("--xml-root", default=None, help="LIDC XML annotations folder")
     p.add_argument("--out", default="./data/processed")
     p.add_argument("--max-series", type=int, default=None)
     p.add_argument("--seed", type=int, default=42)
+    p.add_argument("--fresh", action="store_true", help="Wipe --out and rebuild")
     p.add_argument("--no-skip-existing", action="store_true")
+    p.add_argument("--keep-unannotated", action="store_true")
+    p.add_argument("--keep-angio", action="store_true")
+    p.add_argument("--keep-all-series", action="store_true")
     p.set_defaults(func=cmd_preprocess)
 
     p = sub.add_parser("train", help="Train hybrid CNN+Swin")

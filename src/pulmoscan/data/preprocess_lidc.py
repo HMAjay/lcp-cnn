@@ -34,6 +34,18 @@ class SeriesInfo:
     study_uid: str = ""
     modality: str = "CT"
     n_files: int = 0
+    series_description: str = ""
+    path_hint: str = ""
+
+    @property
+    def looks_like_angio(self) -> bool:
+        blob = f"{self.series_description} {self.path_hint}".lower()
+        return any(k in blob for k in ("angio", "cta", "arterial", "pulmonary artery"))
+
+    @property
+    def looks_like_chest(self) -> bool:
+        blob = f"{self.series_description} {self.path_hint}".lower()
+        return any(k in blob for k in ("chest", "thorax", "lung", "thin", "std", "standard"))
 
 
 @dataclass
@@ -128,6 +140,7 @@ def discover_ct_series(raw_root: str | Path) -> list[SeriesInfo]:
                 "study_uid": str(getattr(ds, "StudyInstanceUID", "") or ""),
                 "modality": modality or "CT",
                 "dir": str(path.parent),
+                "series_description": str(getattr(ds, "SeriesDescription", "") or ""),
             }
 
     out: list[SeriesInfo] = []
@@ -144,10 +157,86 @@ def discover_ct_series(raw_root: str | Path) -> list[SeriesInfo]:
                 study_uid=info.get("study_uid", ""),
                 modality=info.get("modality", "CT"),
                 n_files=len(files),
+                series_description=info.get("series_description", ""),
+                path_hint=str(dicom_dir),
             )
         )
     out.sort(key=lambda s: (s.patient_id, s.series_uid))
     return out
+
+
+def select_series_for_training(
+    series_list: list[SeriesInfo],
+    xml_index: dict[str, Path],
+    *,
+    annotated_only: bool = True,
+    skip_angio: bool = True,
+    one_per_patient: bool = True,
+) -> tuple[list[SeriesInfo], dict[str, int]]:
+    """Keep lung-nodule CT series that LIDC actually annotated.
+
+    LIDC-IDRI patients often have multiple series (e.g. folder names ``chest`` vs
+    ``angio``). Those are still thoracic CTs — not other organs — but only the
+    series referenced by LIDC XML has nodule malignancy labels. Defaults:
+
+    - require matching XML (annotated_only)
+    - drop angio/CTA-like series when a better option exists
+    - keep one series per patient (best annotated / chest / most slices)
+    """
+    stats = {
+        "input": len(series_list),
+        "dropped_no_xml": 0,
+        "dropped_angio": 0,
+        "dropped_extra_per_patient": 0,
+    }
+
+    candidates: list[SeriesInfo] = []
+    for s in series_list:
+        has_xml = s.series_uid in xml_index
+        if annotated_only and not has_xml:
+            stats["dropped_no_xml"] += 1
+            continue
+        if skip_angio and s.looks_like_angio and not has_xml:
+            # Always drop unannotated angio; annotated angio is rare but keep if only option
+            stats["dropped_angio"] += 1
+            continue
+        candidates.append(s)
+
+    if not one_per_patient:
+        return candidates, stats
+
+    by_patient: dict[str, list[SeriesInfo]] = defaultdict(list)
+    for s in candidates:
+        by_patient[s.patient_id].append(s)
+
+    selected: list[SeriesInfo] = []
+    for pid, items in sorted(by_patient.items()):
+        if len(items) == 1:
+            selected.append(items[0])
+            continue
+
+        def score(s: SeriesInfo) -> tuple:
+            # Higher is better
+            return (
+                1 if s.series_uid in xml_index else 0,
+                0 if s.looks_like_angio else 1,
+                1 if s.looks_like_chest else 0,
+                s.n_files,
+            )
+
+        ranked = sorted(items, key=score, reverse=True)
+        # If top is angio but a non-angio exists with XML, prefer non-angio
+        best = ranked[0]
+        if best.looks_like_angio:
+            non_angio = [s for s in ranked if not s.looks_like_angio]
+            if non_angio:
+                best = non_angio[0]
+                stats["dropped_angio"] += 1
+        selected.append(best)
+        stats["dropped_extra_per_patient"] += len(items) - 1
+
+    selected.sort(key=lambda s: (s.patient_id, s.series_uid))
+    return selected, stats
 
 
 def load_series_hu_and_affine(dicom_dir: Path) -> tuple[np.ndarray, np.ndarray, dict[str, Any]]:
@@ -533,9 +622,21 @@ def run_preprocess(
     max_series: int | None = None,
     seed: int = 42,
     skip_existing: bool = True,
+    fresh: bool = False,
+    annotated_only: bool = True,
+    skip_angio: bool = True,
+    one_per_patient: bool = True,
 ) -> dict[str, Any]:
+    import shutil
+    import sys
+
     raw_root = Path(raw_root)
     out_root = Path(out_root)
+
+    if fresh and out_root.exists():
+        print(f"Fresh start: removing {out_root}")
+        shutil.rmtree(out_root)
+
     for sub in (
         "volumes",
         "metadata/lidc",
@@ -544,19 +645,36 @@ def run_preprocess(
     ):
         (out_root / sub).mkdir(parents=True, exist_ok=True)
 
+    print(f"Indexing XML under {xml_root or raw_root} ...")
+    xml_index = index_xml_files(xml_root) if xml_root else {}
+    # Also index XML sitting inside the raw download (TCIA often includes them)
+    for uid, path in index_xml_files(raw_root).items():
+        xml_index.setdefault(uid, path)
+    print(f"XML files indexed: {len(xml_index)}")
+
     print(f"Indexing DICOM under {raw_root} ...")
     series_list = discover_ct_series(raw_root)
-    print(f"Found {len(series_list)} CT series")
+    print(f"Found {len(series_list)} CT series on disk")
+
+    series_list, filter_stats = select_series_for_training(
+        series_list,
+        xml_index,
+        annotated_only=annotated_only,
+        skip_angio=skip_angio,
+        one_per_patient=one_per_patient,
+    )
+    print("Series filter:", json.dumps(filter_stats))
+    print(f"Selected {len(series_list)} series for preprocessing")
+
     if max_series is not None:
         series_list = series_list[: max(0, int(max_series))]
         print(f"Limiting to first {len(series_list)} series")
 
-    print(f"Indexing XML under {xml_root or raw_root} ...")
-    xml_index = index_xml_files(xml_root) if xml_root else {}
-    # Also index XML sitting inside the raw download
-    for uid, path in index_xml_files(raw_root).items():
-        xml_index.setdefault(uid, path)
-    print(f"XML files indexed: {len(xml_index)}")
+    if not series_list:
+        raise RuntimeError(
+            "No series selected. Check --raw-root / --xml-root. "
+            "LIDC XML must match SeriesInstanceUID of chest CT folders."
+        )
 
     xml_fallbacks = [Path(xml_root)] if xml_root else []
     results = []
@@ -568,7 +686,7 @@ def run_preprocess(
                     out_root=out_root,
                     xml_index=xml_index,
                     xml_fallback_roots=xml_fallbacks,
-                    skip_existing=skip_existing,
+                    skip_existing=skip_existing and not fresh,
                 )
             )
         except Exception as exc:  # noqa: BLE001
@@ -581,9 +699,6 @@ def run_preprocess(
                 }
             )
 
-    # Build manifests from whatever succeeded
-    import sys
-
     repo_scripts = Path(__file__).resolve().parents[3] / "scripts"
     if str(repo_scripts) not in sys.path:
         sys.path.insert(0, str(repo_scripts))
@@ -593,7 +708,8 @@ def run_preprocess(
     summary = {
         "raw_root": str(raw_root.resolve()),
         "out_root": str(out_root.resolve()),
-        "n_series_seen": len(series_list),
+        "filter": filter_stats,
+        "n_series_selected": len(series_list),
         "n_ok": sum(1 for r in results if r.get("status") == "ok"),
         "n_skipped": sum(1 for r in results if r.get("status") == "skipped_existing"),
         "n_error": sum(1 for r in results if r.get("status") == "error"),
@@ -613,24 +729,44 @@ def main() -> None:
     parser.add_argument(
         "--raw-root",
         required=True,
-        help="TCIA download folder (e.g. C:/Users/Lenovo/Downloads/TCIA_LIDC-IDRI_20200921)",
+        help="Folder with LIDC-IDRI-XXXX patient dirs (e.g. D:/lidc/raw)",
     )
     parser.add_argument(
         "--xml-root",
         default=None,
-        help="Optional folder/unzip of LIDC XML annotations (if not inside raw-root)",
+        help="LIDC XML annotations folder (if not already inside raw-root)",
     )
     parser.add_argument(
         "--out",
         default="./data/processed",
-        help="Output processed root",
+        help="Output processed root (will be wiped if --fresh)",
     )
     parser.add_argument("--max-series", type=int, default=None, help="Optional cap for testing")
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument(
+        "--fresh",
+        action="store_true",
+        help="Delete --out and rebuild processed/ from scratch",
+    )
+    parser.add_argument(
         "--no-skip-existing",
         action="store_true",
         help="Reprocess series even if outputs exist",
+    )
+    parser.add_argument(
+        "--keep-unannotated",
+        action="store_true",
+        help="Do not require LIDC XML (not recommended for malignancy training)",
+    )
+    parser.add_argument(
+        "--keep-angio",
+        action="store_true",
+        help="Do not prefer skipping angio/CTA-like series",
+    )
+    parser.add_argument(
+        "--keep-all-series",
+        action="store_true",
+        help="Keep multiple series per patient instead of one best series",
     )
     args = parser.parse_args()
     summary = run_preprocess(
@@ -640,6 +776,10 @@ def main() -> None:
         max_series=args.max_series,
         seed=args.seed,
         skip_existing=not args.no_skip_existing,
+        fresh=args.fresh,
+        annotated_only=not args.keep_unannotated,
+        skip_angio=not args.keep_angio,
+        one_per_patient=not args.keep_all_series,
     )
     print(json.dumps(summary, indent=2))
 
