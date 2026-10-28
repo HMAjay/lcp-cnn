@@ -1,0 +1,18 @@
+{
+  "split": "test",
+  "checkpoint": "/home/jovyan/artifacts/checkpoints_v3_48/best.pt",
+  "metrics": {
+    "accuracy": 0.7586206896551724,
+    "auc": 0.9138888888888889,
+    "auprc": 0.9582989336085312,
+    "best_threshold": 0.01433563232421875,
+    "sensitivity": 0.7,
+    "specificity": 0.8888888888888888,
+    "precision": 0.9333333333333333,
+    "brier": 0.22960195414208132,
+    "tp": 14.0,
+    "tn": 8.0,
+    "fp": 1.0,
+    "fn": 6.0
+  }
+}
