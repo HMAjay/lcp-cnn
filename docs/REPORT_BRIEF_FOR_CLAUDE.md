@@ -360,6 +360,16 @@ Confusion: TP=14, TN=8, FP=1, FN=6 on n_test=29.
 Existing PNGs in repo (can replace with nicer figures):  
 `docs/report/fig1_overview.png` … `fig5_stages.png`
 
+**Paper-ready result figures (PNG + PDF, 300 dpi):** under `docs/report/figures/`
+- `fig_training_curves` — train loss + val AUC/acc over 28 epochs (best val AUC epoch marked)
+- `fig_confusion_matrix` — test TN/FP/FN/TP
+- `fig_test_metrics` — bar chart of test AUC/AUPRC/Acc/Sens/Spec/Prec
+- `fig_dataset_split` — train/val/test benign vs malignant counts
+- `fig_results_summary` — headline metric cards
+- `fig_val_vs_test` — validation (selection) vs held-out test
+
+Regenerate: `python scripts/generate_paper_figures.py`
+
 ---
 
 ## 12. Suggested chapter talking points (so nothing is missed)
