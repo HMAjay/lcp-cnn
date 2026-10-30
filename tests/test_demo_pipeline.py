@@ -30,6 +30,7 @@ def test_list_and_run_case(tmp_path):
     )
     assert "P(malignant)" in result["md"]
     assert result["ct"].ndim == 3 and result["overlay"].shape == result["ct"].shape
+    assert result["lung"].shape == result["ct"].shape
     assert 0.0 <= result["meta"]["prob"] <= 1.0
     assert Path(result["meta"]["figure"]).is_file()
 
@@ -43,5 +44,5 @@ def test_viz_panels():
     lung[8:24, 8:24, 8:24] = 1
     nod[14:18, 14:18, 14:18] = 1
     vol[nod > 0] = -100
-    ct, ov, zoom = render_simple_panels(vol, lung, nod, slice_z=16)
-    assert ct.shape[2] == 3 and ov.shape[2] == 3 and zoom.ndim == 3
+    ct, lung_img, ov, zoom = render_simple_panels(vol, lung, nod, slice_z=16)
+    assert ct.shape[2] == 3 and lung_img.shape[2] == 3 and ov.shape[2] == 3 and zoom.ndim == 3

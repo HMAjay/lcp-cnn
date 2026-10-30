@@ -22,6 +22,7 @@ from pulmoscan.data.io import crop_voi, load_nifti, patient_to_voxel_zyx, window
 from pulmoscan.data.labels import load_json, _strip_processed_prefix
 from pulmoscan.detection.masks import resolve_mask_path, ensure_consensus_mask
 from pulmoscan.inference.viz import (
+    LUNG_WINDOW,
     estimate_lung_mask,
     nodule_centroid_zyx,
     render_pipeline_figure,
@@ -220,10 +221,10 @@ def run_case(
         prob=prob,
         truth_label=truth,
         out_path=fig_path,
-        hu_window=hu_window,
+        hu_window=LUNG_WINDOW,
     )
-    ct_img, overlay_img, zoom_img = render_simple_panels(
-        vol, lung, nodule_mask, slice_z=cz, hu_window=hu_window
+    ct_img, lung_img, overlay_img, zoom_img = render_simple_panels(
+        vol, lung, nodule_mask, slice_z=cz, hu_window=LUNG_WINDOW
     )
     attn_path = out_dir / f"{series_uid}_attention.png"
     save_attention_overlay(
@@ -259,10 +260,11 @@ def run_case(
         md += "\n"
     md += (
         f"\n### What you are seeing\n"
-        f"1. **Input CT** — axial slice through the nodule\n"
-        f"2. **Segmentation** — teal = lung field, red = segmented nodule\n"
-        f"3. **Close-up** — zoomed nodule region\n"
-        f"4. **Attention** — Stage-2 focus map on the VOI\n"
+        f"1. **Input CT** — lung-window axial slice through the nodule\n"
+        f"2. **Lung field** — segmented lungs highlighted in teal\n"
+        f"3. **Lung + nodule** — teal lungs with the nodule marked in red\n"
+        f"4. **Close-up** — zoomed nodule region\n"
+        f"5. **Attention** — Stage-2 focus map on the VOI\n"
         f"\n*{DISCLAIMER}*"
         f"{warn}"
     )
@@ -282,6 +284,7 @@ def run_case(
         "md": md,
         "figure_rgb": rgb,
         "ct": ct_img,
+        "lung": lung_img,
         "overlay": overlay_img,
         "zoom": zoom_img,
         "attention": str(attn_path),
@@ -318,17 +321,19 @@ def build_app(
 
         out_md = gr.Markdown()
         with gr.Row():
-            img_ct = gr.Image(label="1 · Input CT", type="numpy")
-            img_overlay = gr.Image(label="2 · Lung + nodule segmentation", type="numpy")
-            img_zoom = gr.Image(label="3 · Nodule close-up", type="numpy")
+            img_ct = gr.Image(label="1 · Input CT (lung window)", type="numpy")
+            img_lung = gr.Image(label="2 · Lung field (teal)", type="numpy")
+            img_overlay = gr.Image(label="3 · Lung + nodule (red)", type="numpy")
+            img_zoom = gr.Image(label="4 · Nodule close-up", type="numpy")
         with gr.Row():
             img_fig = gr.Image(label="Combined figure", type="numpy")
-            img_attn = gr.Image(label="4 · Stage-2 attention on VOI", type="filepath")
+            img_attn = gr.Image(label="5 · Stage-2 attention on VOI", type="filepath")
 
         def on_run(label: str, offset: float):
             if label not in by_label:
                 return (
                     "No cases available under the data root.",
+                    None,
                     None,
                     None,
                     None,
@@ -350,23 +355,17 @@ def build_app(
             return (
                 result["md"],
                 result["ct"],
+                result["lung"],
                 result["overlay"],
                 result["zoom"],
                 result["figure_rgb"],
                 result["attention"],
             )
 
-        btn.click(
-            on_run,
-            inputs=[case_dd, slice_off],
-            outputs=[out_md, img_ct, img_overlay, img_zoom, img_fig, img_attn],
-        )
+        outputs = [out_md, img_ct, img_lung, img_overlay, img_zoom, img_fig, img_attn]
+        btn.click(on_run, inputs=[case_dd, slice_off], outputs=outputs)
         # Auto-run first case on load for review convenience
-        demo.load(
-            on_run,
-            inputs=[case_dd, slice_off],
-            outputs=[out_md, img_ct, img_overlay, img_zoom, img_fig, img_attn],
-        )
+        demo.load(on_run, inputs=[case_dd, slice_off], outputs=outputs)
     return demo
 
 

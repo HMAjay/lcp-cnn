@@ -23,22 +23,51 @@ def _make_volume(
 ) -> tuple[np.ndarray, list[float], np.ndarray, np.ndarray]:
     rng = np.random.default_rng(seed)
     vol = rng.normal(-800, 40, size=(size, size, size)).astype(np.float32)
-    # lung-ish ball
+    # Two-lobe lung field (left/right) so the demo clearly shows "lungs", not a blob
     zz, yy, xx = np.ogrid[:size, :size, :size]
     center = size // 2
-    lung = (zz - center) ** 2 + (yy - center) ** 2 + (xx - center) ** 2 <= (size * 0.35) ** 2
+    ry, rx = size * 0.38, size * 0.22
+    rz = size * 0.32
+    left = (
+        ((zz - center) / rz) ** 2
+        + ((yy - center) / ry) ** 2
+        + ((xx - (center - size * 0.18)) / rx) ** 2
+        <= 1.0
+    )
+    right = (
+        ((zz - center) / rz) ** 2
+        + ((yy - center) / ry) ** 2
+        + ((xx - (center + size * 0.18)) / rx) ** 2
+        <= 1.0
+    )
+    # Soft mediastinal gap between lobes
+    gap = np.abs(xx - center) < size * 0.04
+    lung = (left | right) & ~gap
     vol[lung] = rng.normal(-700, 50, size=int(lung.sum()))
+    # Body / soft-tissue outside lungs
+    body = (zz - center) ** 2 + (yy - center) ** 2 + (xx - center) ** 2 <= (size * 0.48) ** 2
+    soft = body & ~lung
+    vol[soft] = rng.normal(40, 30, size=int(soft.sum()))
 
-    # nodule near center with slight offset
-    offset = rng.integers(-8, 9, size=3)
-    cz, cy, cx = (center + offset).tolist()
+    # Nodule inside one lung lobe (not the mediastinal gap) so lung+nodule are both visible
+    side = 1 if rng.random() < 0.5 else -1
+    cz = int(center + rng.integers(-6, 7))
+    cy = int(center + rng.integers(-10, 11))
+    cx = int(center + side * int(size * 0.18) + rng.integers(-4, 5))
     radius = 6 if malignant else 4
     nodule = (zz - cz) ** 2 + (yy - cy) ** 2 + (xx - cx) ** 2 <= radius**2
+    # Keep nodule voxels inside lung
+    nodule = nodule & lung
+    if not nodule.any():
+        # fallback: force a small ball at lobe center
+        cx = int(center + side * int(size * 0.18))
+        cy = center
+        cz = center
+        nodule = (zz - cz) ** 2 + (yy - cy) ** 2 + (xx - cx) ** 2 <= radius**2
     intensity = -100 if malignant else -200
     vol[nodule] = rng.normal(intensity, 30, size=int(nodule.sum()))
     if malignant:
-        # spiculation-ish brighter rim noise
-        rim = ((zz - cz) ** 2 + (yy - cy) ** 2 + (xx - cx) ** 2 <= (radius + 2) ** 2) & ~nodule
+        rim = ((zz - cz) ** 2 + (yy - cy) ** 2 + (xx - cx) ** 2 <= (radius + 2) ** 2) & ~nodule & lung
         vol[rim] = rng.normal(-50, 40, size=int(rim.sum()))
 
     mask = nodule.astype(np.uint8)
