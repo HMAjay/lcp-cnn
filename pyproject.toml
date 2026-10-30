@@ -34,6 +34,7 @@ preprocess = ["pydicom>=2.4", "SimpleITK>=2.3"]
 pulmoscan-train = "pulmoscan.classification.train:main"
 pulmoscan-eval = "pulmoscan.evaluation.evaluate:main"
 pulmoscan-demo = "pulmoscan.inference.demo_app:main"
+pulmoscan-demo-pipeline = "pulmoscan.inference.demo_pipeline:main"
 pulmoscan-predict = "pulmoscan.inference.predict_real:main"
 pulmoscan-synth = "pulmoscan.data.synthetic:main"
 pulmoscan-preprocess = "pulmoscan.data.preprocess_lidc:main"

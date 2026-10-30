@@ -1,4 +1,4 @@
-.PHONY: install synth smoke-train smoke-detect demo test
+.PHONY: install synth smoke-train smoke-detect demo demo-pipeline test
 
 install:
 	pip install -e ".[dev]"
@@ -15,6 +15,9 @@ smoke-detect: synth
 
 demo:
 	python -m pulmoscan.inference.demo_app --port 7865 --device cpu
+
+demo-pipeline: synth smoke-train
+	python -m pulmoscan.inference.demo_pipeline --data-root ./data/synthetic --checkpoint ./artifacts/checkpoints/best.pt --port 7867 --device cpu
 
 test:
 	pytest -q

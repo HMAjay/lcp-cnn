@@ -79,11 +79,39 @@ python -m pulmoscan.classification.train \
   --epochs 1 --batch-size 2 --device cpu \
   --output-dir ./artifacts/checkpoints
 
-# Gradio demo
+# Gradio demo (VOI-only)
 python -m pulmoscan.inference.demo_app --port 7865
+
+# Review demo: CT → lung+nodule seg → malignancy
+python -m pulmoscan.classification.train \
+  --data-root ./data/synthetic --epochs 1 --batch-size 2 --device cpu \
+  --output-dir ./artifacts/checkpoints
+python -m pulmoscan.inference.demo_pipeline \
+  --data-root ./data/synthetic \
+  --checkpoint ./artifacts/checkpoints/best.pt \
+  --port 7867 --device cpu
 ```
 
-Or: `make smoke-detect` / `make smoke-train`.
+Or: `make smoke-detect` / `make smoke-train` / `make demo-pipeline`.
+
+### Review pipeline demo (recommended)
+
+Shows **input CT**, **lung (teal) + nodule (red) segmentation**, nodule close-up, and **Stage-2 malignancy score** using cases under your data root:
+
+```bash
+# synthetic (bundled smoke data)
+python -m pulmoscan.inference.demo_pipeline \
+  --data-root ./data/synthetic \
+  --checkpoint ./artifacts/checkpoints/best.pt \
+  --port 7867
+
+# your real processed LIDC + Colab Stage-2 weights
+export PULMOSCAN_DATA_ROOT=/path/to/processed
+export PULMOSCAN_CHECKPOINT=/path/to/best.pt
+python -m pulmoscan.inference.demo_pipeline --port 7867
+```
+
+Open `http://127.0.0.1:7867`, pick a case, click **Run pipeline**.
 
 ## Train on Colab (4GB-safe preset)
 
