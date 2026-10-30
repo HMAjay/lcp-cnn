@@ -1,0 +1,5 @@
+name: unet3d_4gb
+in_channels: 1
+base_channels: 16
+depth: 4
+patch_size: [64, 64, 64]

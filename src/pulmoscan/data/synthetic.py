@@ -18,7 +18,9 @@ def _write_nifti(path: Path, volume: np.ndarray, spacing: float = 1.0) -> None:
     nib.save(nib.Nifti1Image(data, affine), str(path))
 
 
-def _make_volume(malignant: bool, size: int = 96, seed: int = 0) -> tuple[np.ndarray, list[float]]:
+def _make_volume(
+    malignant: bool, size: int = 96, seed: int = 0
+) -> tuple[np.ndarray, list[float], np.ndarray]:
     rng = np.random.default_rng(seed)
     vol = rng.normal(-800, 40, size=(size, size, size)).astype(np.float32)
     # lung-ish ball
@@ -39,10 +41,11 @@ def _make_volume(malignant: bool, size: int = 96, seed: int = 0) -> tuple[np.nda
         rim = ((zz - cz) ** 2 + (yy - cy) ** 2 + (xx - cx) ** 2 <= (radius + 2) ** 2) & ~nodule
         vol[rim] = rng.normal(-50, 40, size=int(rim.sum()))
 
+    mask = nodule.astype(np.uint8)
     # patient coords with identity affine: voxel (x,y,z) == mm
     # our volume layout is (Z,Y,X); centroid patient mm is (x,y,z)
     centroid_patient_mm = [float(cx), float(cy), float(cz)]
-    return vol, centroid_patient_mm
+    return vol, centroid_patient_mm, mask
 
 
 def generate_synthetic_dataset(
@@ -75,9 +78,15 @@ def generate_synthetic_dataset(
             patient_id = f"SYN{idx:03d}"
             series_uid = f"1.2.syn.{idx}"
             malignant = bool(rng.integers(0, 2))
-            vol, centroid = _make_volume(malignant=malignant, size=96, seed=seed + idx)
+            vol, centroid, mask = _make_volume(malignant=malignant, size=96, seed=seed + idx)
             vol_path = root / "volumes" / f"{series_uid}.nii.gz"
             _write_nifti(vol_path, vol)
+
+            # Stage-1 GT: consensus nodule mask + session-0 copy (docs layout)
+            consensus_path = root / "masks" / "consensus" / f"{series_uid}.nii.gz"
+            session_path = root / "masks" / series_uid / "session_0" / "nodule_0.nii.gz"
+            _write_nifti(consensus_path, mask.astype(np.float32))
+            _write_nifti(session_path, mask.astype(np.float32))
 
             malignancy = 5.0 if malignant else 1.0
             phys = {
@@ -88,6 +97,7 @@ def generate_synthetic_dataset(
                         "confidence": "high",
                         "representative_centroid_patient_mm": centroid,
                         "malignancy_mean": malignancy,
+                        "diameter_mm": 12.0 if malignant else 8.0,
                         "observations": [
                             {
                                 "session_index": 0,
@@ -116,6 +126,7 @@ def generate_synthetic_dataset(
                     "split": split,
                     "volume": f"volumes/{series_uid}.nii.gz",
                     "physical_nodules": f"metadata/physical_nodules/{series_uid}.json",
+                    "mask": f"masks/consensus/{series_uid}.nii.gz",
                 }
             )
             idx += 1

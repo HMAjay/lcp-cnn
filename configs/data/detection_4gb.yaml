@@ -1,0 +1,33 @@
+# Stage-1 detection data config (4GB-safe patch training)
+data_root: ${oc.env:PULMOSCAN_DATA_ROOT,./data/processed}
+manifest: manifests/dataset_manifest.json
+splits: manifests/patient_splits.json
+
+patch_size: [64, 64, 64]
+hu_window: [-1000, 400]
+normalize: true
+
+# Consensus mask builder (sphere fallback around physical-nodule centroids)
+default_radius_mm: 6.0
+min_confidence: low
+build_missing_masks: true
+
+patches_per_series: 4
+positive_fraction: 0.75
+
+augmentation:
+  train:
+    flip_prob: 0.5
+    rotate90_prob: 0.5
+    intensity_scale: [0.9, 1.1]
+    intensity_shift: [-0.05, 0.05]
+  val: {}
+
+inference:
+  overlap: 0.5
+  threshold: 0.5
+  min_voxels: 8
+  max_candidates: 50
+  match_distance_mm: 15.0
+
+num_workers: 0

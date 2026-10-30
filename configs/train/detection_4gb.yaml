@@ -1,0 +1,22 @@
+seed: 42
+epochs: 40
+batch_size: 1
+lr: 1.0e-4
+weight_decay: 1.0e-4
+warmup_epochs: 2
+grad_accum_steps: 4
+max_grad_norm: 1.0
+amp: true
+early_stopping_patience: 10
+torch_num_threads: 2
+empty_cache_each_epoch: true
+
+loss:
+  name: dice_bce
+  dice_weight: 1.0
+  bce_weight: 1.0
+  pos_weight: 5.0  # nodules are sparse; boost foreground BCE
+
+checkpoint_dir: ./artifacts/detection
+log_dir: ./artifacts/logs_detection
+save_every: 5

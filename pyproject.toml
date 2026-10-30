@@ -37,6 +37,9 @@ pulmoscan-demo = "pulmoscan.inference.demo_app:main"
 pulmoscan-predict = "pulmoscan.inference.predict_real:main"
 pulmoscan-synth = "pulmoscan.data.synthetic:main"
 pulmoscan-preprocess = "pulmoscan.data.preprocess_lidc:main"
+pulmoscan-build-masks = "pulmoscan.detection.masks:main"
+pulmoscan-detect-train = "pulmoscan.detection.train:main"
+pulmoscan-detect = "pulmoscan.detection.infer:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]

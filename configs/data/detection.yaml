@@ -1,0 +1,32 @@
+# Stage-1 detection data config (larger patches when VRAM allows)
+data_root: ${oc.env:PULMOSCAN_DATA_ROOT,./data/processed}
+manifest: manifests/dataset_manifest.json
+splits: manifests/patient_splits.json
+
+patch_size: [96, 96, 96]
+hu_window: [-1000, 400]
+normalize: true
+
+default_radius_mm: 6.0
+min_confidence: low
+build_missing_masks: true
+
+patches_per_series: 6
+positive_fraction: 0.7
+
+augmentation:
+  train:
+    flip_prob: 0.5
+    rotate90_prob: 0.5
+    intensity_scale: [0.9, 1.1]
+    intensity_shift: [-0.05, 0.05]
+  val: {}
+
+inference:
+  overlap: 0.5
+  threshold: 0.5
+  min_voxels: 10
+  max_candidates: 80
+  match_distance_mm: 15.0
+
+num_workers: 0

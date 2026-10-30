@@ -1,6 +1,9 @@
 # PulmoScan AI
 
-Hybrid **3D CNN + Swin Transformer** for pulmonary nodule malignancy risk prediction (LIDC-IDRI).
+Two-stage pipeline for pulmonary nodule malignancy risk (LIDC-IDRI):
+
+1. **Stage 1** — 3D U-Net detects / segments candidate nodules → VOI centroids  
+2. **Stage 2** — Hybrid **3D CNN + Swin Transformer** scores each VOI
 
 > Research use only. Not a medical diagnosis.
 
@@ -8,14 +11,13 @@ Hybrid **3D CNN + Swin Transformer** for pulmonary nodule malignancy risk predic
 
 | Piece | Role |
 |-------|------|
-| `src/pulmoscan/classification/` | 3D ResNet-style CNN → Swin3D encoder → sigmoid risk score |
-| `src/pulmoscan/data/` | Loaders for your preprocessed LIDC layout + synthetic smoke data |
+| `src/pulmoscan/detection/` | Stage-1 3D U-Net, Dice+BCE, sliding-window infer → candidates |
+| `src/pulmoscan/classification/` | Stage-2 CNN → Swin3D → sigmoid malignancy risk |
+| `src/pulmoscan/data/` | LIDC preprocess/loaders + synthetic smoke data |
 | `src/pulmoscan/evaluation/` | AUC, sensitivity/specificity, Brier, confusion counts |
 | `src/pulmoscan/xai/` | CLS-attention overlay helpers |
 | `src/pulmoscan/inference/demo_app.py` | Local Gradio demo |
 | `notebooks/PulmoScan_Colab_Train.ipynb` | **GPU training on Google Colab** (recommended) |
-
-Stage-1 detection (3D U-Net) is deferred; this slice scores VOIs from existing physical-nodule metadata.
 
 ## Defaults chosen
 
@@ -57,8 +59,21 @@ Full steps: [`docs/PREPROCESS_GUIDE.md`](docs/PREPROCESS_GUIDE.md).
 python -m venv .venv && source .venv/bin/activate
 pip install -e ".[dev]"
 
-# synthetic data + 1-epoch smoke train
+# synthetic data + 1-epoch smoke trains
 python -m pulmoscan.data.synthetic --out ./data/synthetic
+
+# Stage 1 — detect
+python -m pulmoscan.detection.train \
+  --data-root ./data/synthetic \
+  --epochs 1 --batch-size 1 --device cpu \
+  --output-dir ./artifacts/detection
+python -m pulmoscan.detection.infer \
+  --data-root ./data/synthetic \
+  --checkpoint ./artifacts/detection/best.pt \
+  --split test --device cpu \
+  --output-dir ./artifacts/detections
+
+# Stage 2 — classify (uses physical-nodule centroids; or detections above)
 python -m pulmoscan.classification.train \
   --data-root ./data/synthetic \
   --epochs 1 --batch-size 2 --device cpu \
@@ -67,6 +82,8 @@ python -m pulmoscan.classification.train \
 # Gradio demo
 python -m pulmoscan.inference.demo_app --port 7865
 ```
+
+Or: `make smoke-detect` / `make smoke-train`.
 
 ## Train on Colab (4GB-safe preset)
 
@@ -99,14 +116,31 @@ python -m pulmoscan.evaluation.evaluate \
   --split test
 ```
 
+## Stage 1 on real processed LIDC
+
+Consensus masks are built automatically (reader-session union if `masks/<series>/` exists; otherwise spheres around physical-nodule centroids):
+
+```bash
+python -m pulmoscan.detection.masks --data-root "$PULMOSCAN_DATA_ROOT"
+python -m pulmoscan.detection.train --preset 4gb --data-root "$PULMOSCAN_DATA_ROOT" --device cuda
+python -m pulmoscan.detection.infer \
+  --data-root "$PULMOSCAN_DATA_ROOT" \
+  --checkpoint ./artifacts/detection/best.pt \
+  --split test --device cuda
+```
+
+Detections land in `artifacts/detections/` (`detections_manifest.json`, per-series candidates, Stage-2-shaped `detected_nodules/`).
+
 ## Configs
 
-| Preset | Model | Data | Train |
-|--------|-------|------|-------|
-| **4gb** (default CLI) | `configs/model/hybrid_cnn_swin_4gb.yaml` | `configs/data/lidc_4gb.yaml` | `configs/train/colab_4gb.yaml` |
-| default | `configs/model/hybrid_cnn_swin.yaml` | `configs/data/lidc_processed.yaml` | `configs/train/default.yaml` |
+| Stage | Preset | Model | Data | Train |
+|-------|--------|-------|------|-------|
+| 2 | **4gb** (default CLI) | `configs/model/hybrid_cnn_swin_4gb.yaml` | `configs/data/lidc_4gb.yaml` | `configs/train/colab_4gb.yaml` |
+| 2 | default | `configs/model/hybrid_cnn_swin.yaml` | `configs/data/lidc_processed.yaml` | `configs/train/default.yaml` |
+| 1 | **4gb** | `configs/model/unet3d_4gb.yaml` | `configs/data/detection_4gb.yaml` | `configs/train/detection_4gb.yaml` |
+| 1 | default | `configs/model/unet3d.yaml` | `configs/data/detection.yaml` | `configs/train/detection.yaml` |
 
-Use `--preset default` for the larger 48³ / higher-capacity setup when you have more VRAM.
+Use `--preset default` for larger patches / capacity when you have more VRAM.
 
 ## Tests
 
