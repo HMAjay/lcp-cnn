@@ -1,0 +1,29 @@
+# Output of tolerance_study/added_value.py run by the team on best.pt (final run), pasted 2026-11-03.
+# analyze_tolerance.py allows 0.006 between the regenerated and recorded AUCs: test 0.917 vs 0.9139, validation 0.946 vs 0.9493 -> OK.
+
+validation: 35 nodules, 16 patients
+  classifier AUC 0.946 (0.886-1.000)
+  diameter AUC   0.986 (0.941-1.000)
+  difference     -0.040 (-0.101 to +0.031)
+  adds beyond size: LR 4.07, P = 0.0437
+  0 to 10.0 mm: 18 nodules, 0 malignant, classifier AUC nan
+  10 to 20.0 mm: 10 nodules, 5 malignant, classifier AUC 0.920
+  20 to up mm: 7 nodules, 7 malignant, classifier AUC nan
+
+test: 29 nodules, 16 patients
+  classifier AUC 0.917 (0.789-1.000)
+  diameter AUC   0.972 (0.914-1.000)
+  difference     -0.056 (-0.193 to +0.015)
+  adds beyond size: LR 0.49, P = 0.4856
+  0 to 10.0 mm: 9 nodules, 1 malignant, classifier AUC 1.000
+  10 to 20.0 mm: 6 nodules, 5 malignant, classifier AUC 0.800
+  20 to up mm: 14 nodules, 14 malignant, classifier AUC nan
+
+all: 64 nodules, 32 patients
+  classifier AUC 0.947 (0.892-0.986)
+  diameter AUC   0.976 (0.941-1.000)
+  difference     -0.028 (-0.090 to +0.020)
+  adds beyond size: LR 6.40, P = 0.0114
+  0 to 10.0 mm: 27 nodules, 1 malignant, classifier AUC 1.000
+  10 to 20.0 mm: 16 nodules, 10 malignant, classifier AUC 0.900
+  20 to up mm: 21 nodules, 21 malignant, classifier AUC nan

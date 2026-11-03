@@ -1,0 +1,152 @@
+{
+  "validation": {
+    "nodules": 35,
+    "patients": 16,
+    "size_bands": [
+      {
+        "from_mm": 0.0,
+        "to_mm": 10.0,
+        "nodules": 18,
+        "malignant": 0,
+        "classifier_auc": null,
+        "diameter_auc": null
+      },
+      {
+        "from_mm": 10.0,
+        "to_mm": 20.0,
+        "nodules": 10,
+        "malignant": 5,
+        "classifier_auc": 0.92,
+        "diameter_auc": null
+      },
+      {
+        "from_mm": 20.0,
+        "to_mm": null,
+        "nodules": 7,
+        "malignant": 7,
+        "classifier_auc": null,
+        "diameter_auc": null
+      }
+    ],
+    "classifier_auc": 0.946,
+    "classifier_auc_ci": [
+      0.886,
+      1.0
+    ],
+    "diameter_auc": 0.986,
+    "diameter_auc_ci": [
+      0.941,
+      1.0
+    ],
+    "difference": -0.04,
+    "difference_ci": [
+      -0.101,
+      0.031
+    ],
+    "added_value": {
+      "lr_statistic": 4.07,
+      "p_value": 0.0437
+    },
+    "malignant": 12
+  },
+  "test": {
+    "nodules": 29,
+    "patients": 16,
+    "size_bands": [
+      {
+        "from_mm": 0.0,
+        "to_mm": 10.0,
+        "nodules": 9,
+        "malignant": 1,
+        "classifier_auc": 1.0,
+        "diameter_auc": null
+      },
+      {
+        "from_mm": 10.0,
+        "to_mm": 20.0,
+        "nodules": 6,
+        "malignant": 5,
+        "classifier_auc": 0.8,
+        "diameter_auc": null
+      },
+      {
+        "from_mm": 20.0,
+        "to_mm": null,
+        "nodules": 14,
+        "malignant": 14,
+        "classifier_auc": null,
+        "diameter_auc": null
+      }
+    ],
+    "classifier_auc": 0.917,
+    "classifier_auc_ci": [
+      0.789,
+      1.0
+    ],
+    "diameter_auc": 0.972,
+    "diameter_auc_ci": [
+      0.914,
+      1.0
+    ],
+    "difference": -0.056,
+    "difference_ci": [
+      -0.193,
+      0.015
+    ],
+    "added_value": {
+      "lr_statistic": 0.49,
+      "p_value": 0.4856
+    },
+    "malignant": 20
+  },
+  "all": {
+    "nodules": 64,
+    "patients": 32,
+    "size_bands": [
+      {
+        "from_mm": 0.0,
+        "to_mm": 10.0,
+        "nodules": 27,
+        "malignant": 1,
+        "classifier_auc": 1.0,
+        "diameter_auc": null
+      },
+      {
+        "from_mm": 10.0,
+        "to_mm": 20.0,
+        "nodules": 16,
+        "malignant": 10,
+        "classifier_auc": 0.9,
+        "diameter_auc": null
+      },
+      {
+        "from_mm": 20.0,
+        "to_mm": null,
+        "nodules": 21,
+        "malignant": 21,
+        "classifier_auc": null,
+        "diameter_auc": null
+      }
+    ],
+    "classifier_auc": 0.947,
+    "classifier_auc_ci": [
+      0.892,
+      0.986
+    ],
+    "diameter_auc": 0.976,
+    "diameter_auc_ci": [
+      0.941,
+      1.0
+    ],
+    "difference": -0.028,
+    "difference_ci": [
+      -0.09,
+      0.02
+    ],
+    "added_value": {
+      "lr_statistic": 6.4,
+      "p_value": 0.0114
+    },
+    "malignant": 32
+  }
+}

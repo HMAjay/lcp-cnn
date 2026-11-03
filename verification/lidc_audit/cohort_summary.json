@@ -1,0 +1,75 @@
+{
+ "series": {
+  "ct_series": 1018,
+  "patients": 1010,
+  "spacing_min": 0.4609375,
+  "spacing_max": 0.9765625,
+  "spacing_mean": 0.6876887486591355,
+  "spacing_median": 0.698609375,
+  "non_square_pixels": 0,
+  "not_identity_orientation": 14,
+  "matrix_not_512": 0,
+  "image_bytes_total": 128405916114
+ },
+ "nodules": {
+  "physical_rated": 2680,
+  "labeled": 1110,
+  "malignant": 321,
+  "benign": 789,
+  "indeterminate_excluded": 1570,
+  "labeled_patients": 588,
+  "labeled_single_reader": 461
+ },
+ "displacement_all_rated": {
+  "n": 2680,
+  "median": 117.08546711833165,
+  "q1": 85.83746686054063,
+  "q3": 150.28697776838433,
+  "min": 5.99828511384578,
+  "max": 293.07448345241767,
+  "centre_outside_voi_n": 2652,
+  "centre_outside_voi_pct": 98.955223880597,
+  "nodule_fully_outside_voi_n": 2639,
+  "nodule_fully_outside_voi_pct": 98.47014925373134,
+  "nodule_at_least_partly_in_voi_n": 41,
+  "mapped_centre_outside_image_n": 1123,
+  "mapped_centre_outside_image_pct": 41.90298507462686,
+  "voi_fully_outside_image_n": 833,
+  "spacing_of_cases_still_in_voi_median": 0.921875
+ },
+ "size_baseline_full": {
+  "n": 1109,
+  "malignant": 321,
+  "patients": 588,
+  "diameter_auc": 0.9335555133861505,
+  "diameter_ci": [
+   0.9073424523038831,
+   0.9537278194237607
+  ],
+  "volume_auc": 0.9215411863307874,
+  "volume_ci": [
+   0.8934690287242139,
+   0.9458744220938189
+  ],
+  "median_diameter_malignant": 20.25775981902453,
+  "median_diameter_benign": 6.4983982285796476
+ },
+ "reconstruction": {
+  "exact_match": false,
+  "prefix_candidates": 1,
+  "first_153_by_id_counts": {
+   "test": [
+    22,
+    8
+   ],
+   "train": [
+    47,
+    99
+   ],
+   "validation": [
+    8,
+    14
+   ]
+  }
+ }
+}

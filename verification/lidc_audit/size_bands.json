@@ -1,0 +1,89 @@
+{
+  "validation": {
+    "nodules": 35,
+    "malignant": 12,
+    "patients": 16,
+    "diameter_auc": 0.9855072463768116,
+    "size_bands": [
+      {
+        "from_mm": 0.0,
+        "to_mm": 10.0,
+        "nodules": 18,
+        "malignant": 0,
+        "diameter_auc": null
+      },
+      {
+        "from_mm": 10.0,
+        "to_mm": 20.0,
+        "nodules": 10,
+        "malignant": 5,
+        "diameter_auc": 0.84
+      },
+      {
+        "from_mm": 20.0,
+        "to_mm": null,
+        "nodules": 7,
+        "malignant": 7,
+        "diameter_auc": null
+      }
+    ]
+  },
+  "test": {
+    "nodules": 29,
+    "malignant": 20,
+    "patients": 16,
+    "diameter_auc": 0.9722222222222222,
+    "size_bands": [
+      {
+        "from_mm": 0.0,
+        "to_mm": 10.0,
+        "nodules": 9,
+        "malignant": 1,
+        "diameter_auc": 1.0
+      },
+      {
+        "from_mm": 10.0,
+        "to_mm": 20.0,
+        "nodules": 6,
+        "malignant": 5,
+        "diameter_auc": 0.2
+      },
+      {
+        "from_mm": 20.0,
+        "to_mm": null,
+        "nodules": 14,
+        "malignant": 14,
+        "diameter_auc": null
+      }
+    ]
+  },
+  "all": {
+    "nodules": 64,
+    "malignant": 32,
+    "patients": 32,
+    "diameter_auc": 0.9755859375,
+    "size_bands": [
+      {
+        "from_mm": 0.0,
+        "to_mm": 10.0,
+        "nodules": 27,
+        "malignant": 1,
+        "diameter_auc": 0.9230769230769231
+      },
+      {
+        "from_mm": 10.0,
+        "to_mm": 20.0,
+        "nodules": 16,
+        "malignant": 10,
+        "diameter_auc": 0.7166666666666667
+      },
+      {
+        "from_mm": 20.0,
+        "to_mm": null,
+        "nodules": 21,
+        "malignant": 21,
+        "diameter_auc": null
+      }
+    ]
+  }
+}

@@ -1,0 +1,269 @@
+{
+ "patient_range": [
+  "LIDC-IDRI-0001",
+  "LIDC-IDRI-0153"
+ ],
+ "rated": 472,
+ "labeled": 195,
+ "indeterminate": 277,
+ "single_reader_labeled": 74,
+ "partitions": {
+  "train": {
+   "n": 131,
+   "malignant": 44,
+   "benign": 87,
+   "patients_assigned": 107,
+   "patients_contributing": 70,
+   "diameter_auc": 0.9440961337513062,
+   "diameter_auc_ci": [
+    0.8900582161350614,
+    0.9820330490380391
+   ],
+   "median_diameter": 8.802218390622382
+  },
+  "validation": {
+   "n": 35,
+   "malignant": 12,
+   "benign": 23,
+   "patients_assigned": 22,
+   "patients_contributing": 16,
+   "diameter_auc": 0.9855072463768116,
+   "diameter_auc_ci": [
+    0.94078164160401,
+    1.0
+   ],
+   "median_diameter": 9.68942554804905
+  },
+  "test": {
+   "n": 29,
+   "malignant": 20,
+   "benign": 9,
+   "patients_assigned": 24,
+   "patients_contributing": 16,
+   "diameter_auc": 0.9722222222222222,
+   "diameter_auc_ci": [
+    0.9135769102435769,
+    1.0
+   ],
+   "median_diameter": 19.063849695905326
+  }
+ },
+ "size_model_test": {
+  "weights": [
+   -10.774299831439503,
+   3.9231215285072407
+  ],
+  "threshold_diameter_mm": 15.585779483937786,
+  "tp": 15,
+  "tn": 9,
+  "fp": 0,
+  "fn": 5,
+  "brier": 0.10785903569246556,
+  "auc": 0.9722222222222222
+ },
+ "rating_vs_diameter_spearman_all": 0.5245372058829134,
+ "random_partitions": {
+  "n": 5000,
+  "auc_p2_5": 0.8395705420215225,
+  "auc_median": 0.9578947368421052,
+  "auc_p97_5": 1.0,
+  "share_median": 0.391304347826087,
+  "share_ge_observed_pct": 1.08,
+  "nodules_median": 30.0
+ },
+ "defect_in_cohort": {
+  "n": 472,
+  "median_mm": 98.39972249371942,
+  "fully_outside_n": 445,
+  "fully_outside_pct": 94.27966101694916,
+  "labeled_fully_outside_pct": 94.35897435897435
+ },
+ "screenshot_check": {
+  "patient": "LIDC-IDRI-0026",
+  "split": "train",
+  "x_vox": 75.31564388456434,
+  "y_vox": 240.60194853357655,
+  "mean_rating": 1.5,
+  "screenshot_zyx": [
+   111.9,
+   240.6,
+   75.3
+  ]
+ },
+ "test_nodules": [
+  [
+   "LIDC-IDRI-0024",
+   "phys-3",
+   0,
+   4.9
+  ],
+  [
+   "LIDC-IDRI-0041",
+   "phys-1",
+   0,
+   5.3
+  ],
+  [
+   "LIDC-IDRI-0027",
+   "phys-6",
+   0,
+   6.1
+  ],
+  [
+   "LIDC-IDRI-0009",
+   "phys-1",
+   0,
+   6.3
+  ],
+  [
+   "LIDC-IDRI-0063",
+   "phys-3",
+   0,
+   6.3
+  ],
+  [
+   "LIDC-IDRI-0130",
+   "phys-1",
+   0,
+   6.8
+  ],
+  [
+   "LIDC-IDRI-0009",
+   "phys-0",
+   0,
+   7.4
+  ],
+  [
+   "LIDC-IDRI-0051",
+   "phys-2",
+   0,
+   7.7
+  ],
+  [
+   "LIDC-IDRI-0060",
+   "phys-4",
+   1,
+   8.2
+  ],
+  [
+   "LIDC-IDRI-0060",
+   "phys-6",
+   1,
+   11.3
+  ],
+  [
+   "LIDC-IDRI-0063",
+   "phys-1",
+   1,
+   13.1
+  ],
+  [
+   "LIDC-IDRI-0060",
+   "phys-0",
+   1,
+   13.9
+  ],
+  [
+   "LIDC-IDRI-0060",
+   "phys-5",
+   1,
+   13.9
+  ],
+  [
+   "LIDC-IDRI-0024",
+   "phys-2",
+   0,
+   14.5
+  ],
+  [
+   "LIDC-IDRI-0060",
+   "phys-2",
+   1,
+   19.1
+  ],
+  [
+   "LIDC-IDRI-0060",
+   "phys-1",
+   1,
+   20.4
+  ],
+  [
+   "LIDC-IDRI-0007",
+   "phys-1",
+   1,
+   20.7
+  ],
+  [
+   "LIDC-IDRI-0108",
+   "phys-0",
+   1,
+   23.9
+  ],
+  [
+   "LIDC-IDRI-0060",
+   "phys-3",
+   1,
+   25.9
+  ],
+  [
+   "LIDC-IDRI-0058",
+   "phys-1",
+   1,
+   29.8
+  ],
+  [
+   "LIDC-IDRI-0002",
+   "phys-0",
+   1,
+   30.8
+  ],
+  [
+   "LIDC-IDRI-0057",
+   "phys-0",
+   1,
+   30.9
+  ],
+  [
+   "LIDC-IDRI-0029",
+   "phys-0",
+   1,
+   31.5
+  ],
+  [
+   "LIDC-IDRI-0058",
+   "phys-4",
+   1,
+   33.3
+  ],
+  [
+   "LIDC-IDRI-0007",
+   "phys-0",
+   1,
+   34.4
+  ],
+  [
+   "LIDC-IDRI-0058",
+   "phys-0",
+   1,
+   36.3
+  ],
+  [
+   "LIDC-IDRI-0023",
+   "phys-0",
+   1,
+   37.5
+  ],
+  [
+   "LIDC-IDRI-0058",
+   "phys-2",
+   1,
+   41.8
+  ],
+  [
+   "LIDC-IDRI-0072",
+   "phys-0",
+   1,
+   43.5
+  ]
+ ]
+}

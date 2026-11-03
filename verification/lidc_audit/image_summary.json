@@ -1,0 +1,20 @@
+{
+ "series": 18,
+ "nodules": 31,
+ "corrected_error_median": 0.0,
+ "corrected_error_q3": 2.3620259668177823e-06,
+ "corrected_error_max": 1.2671875026626367e-05,
+ "corrected_xy_error_max": 0.0,
+ "corrected_within_1mm": 31,
+ "defective_error_median": 108.66978558706273,
+ "defective_error_q1": 77.26029042123392,
+ "defective_error_q3": 142.0899700275138,
+ "defective_error_max": 193.28074039310212,
+ "corrected_centre_hu_median": -378.46875,
+ "defective_centre_hu_median": -892.921875,
+ "corrected_shape_ok": 31,
+ "defective_shape_ok": 31,
+ "defective_range_ok": 31,
+ "defective_padding_gt50": 11,
+ "corrected_padding_gt50": 0
+}

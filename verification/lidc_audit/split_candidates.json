@@ -1,0 +1,134 @@
+[
+ {
+  "distance": 0,
+  "dropped": [
+   "LIDC-IDRI-0090",
+   "LIDC-IDRI-0133",
+   "LIDC-IDRI-0140"
+  ],
+  "counts": {
+   "train": [
+    45,
+    87
+   ],
+   "validation": [
+    12,
+    23
+   ],
+   "test": [
+    20,
+    9
+   ]
+  }
+ },
+ {
+  "distance": 0,
+  "dropped": [
+   "LIDC-IDRI-0091",
+   "LIDC-IDRI-0133",
+   "LIDC-IDRI-0140"
+  ],
+  "counts": {
+   "train": [
+    45,
+    87
+   ],
+   "validation": [
+    12,
+    23
+   ],
+   "test": [
+    20,
+    9
+   ]
+  }
+ },
+ {
+  "distance": 0,
+  "dropped": [
+   "LIDC-IDRI-0096",
+   "LIDC-IDRI-0127",
+   "LIDC-IDRI-0128"
+  ],
+  "counts": {
+   "train": [
+    45,
+    87
+   ],
+   "validation": [
+    12,
+    23
+   ],
+   "test": [
+    20,
+    9
+   ]
+  }
+ },
+ {
+  "distance": 0,
+  "dropped": [
+   "LIDC-IDRI-0096",
+   "LIDC-IDRI-0127",
+   "LIDC-IDRI-0131"
+  ],
+  "counts": {
+   "train": [
+    45,
+    87
+   ],
+   "validation": [
+    12,
+    23
+   ],
+   "test": [
+    20,
+    9
+   ]
+  }
+ },
+ {
+  "distance": 0,
+  "dropped": [
+   "LIDC-IDRI-0096",
+   "LIDC-IDRI-0128",
+   "LIDC-IDRI-0131"
+  ],
+  "counts": {
+   "train": [
+    45,
+    87
+   ],
+   "validation": [
+    12,
+    23
+   ],
+   "test": [
+    20,
+    9
+   ]
+  }
+ },
+ {
+  "distance": 0,
+  "dropped": [
+   "LIDC-IDRI-0097",
+   "LIDC-IDRI-0127",
+   "LIDC-IDRI-0128"
+  ],
+  "counts": {
+   "train": [
+    45,
+    87
+   ],
+   "validation": [
+    12,
+    23
+   ],
+   "test": [
+    20,
+    9
+   ]
+  }
+ }
+]
